@@ -1,10 +1,14 @@
-# Fast MIDI Jam (Windows)
+# Fast MIDI Jam
 
 A low-latency MIDI remote jamming service over UDP, designed for Windows.
 
 ## Use Case
 
 Connect and play MIDI instruments together with others in real-time over a local network or internet.
+
+## Downloads
+
+[![Release](https://img.shields.io/github/release/[YOUR_GITHUB_USERNAME]/[YOUR_REPO_NAME].svg?style=flat-square)](https://github.com/serifpersia/fast-midi-jam/releases)
 
 ## Build Instructions
 
@@ -24,7 +28,7 @@ Connect and play MIDI instruments together with others in real-time over a local
 ## Running
 
 1.  **Configuration:**
-    *   **Server:** `build\MidiJamServer.exe`
+    *   **Server:** `build\MidiJamServer.exe` prompts for port/timeout if `server_config.cfg` is missing.
     *   **Client:** `build\MidiJamClient.exe` prompts for settings if `client_config.cfg` is missing.
 
 2.  **Start Server:** `build\MidiJamServer.exe`
@@ -50,6 +54,7 @@ Connect and play MIDI instruments together with others in real-time over a local
     second_midi_port_open=false
     second_midi_in_port=2
     ```
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
