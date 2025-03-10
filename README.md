@@ -8,7 +8,21 @@ Connect and play MIDI instruments together with others in real-time over a local
 
 ## Downloads
 
-[![Release](https://img.shields.io/github/release/[YOUR_GITHUB_USERNAME]/[YOUR_REPO_NAME].svg?style=flat-square)](https://github.com/serifpersia/fast-midi-jam/releases)
+[![Release](https://img.shields.io/github/release/[YOUR_GITHUB_USERNAME]/[YOUR_REPO_NAME].svg?style=flat-square)](https://github.com/[YOUR_GITHUB_USERNAME]/[YOUR_REPO_NAME]/releases)
+
+## Remote Usage
+
+To connect clients and a server over the internet, the server needs to be accessible from the outside. You can achieve this in two ways:
+
+1.  **Port Forwarding:**
+    *   Configure your router to forward the UDP port used by the server (specified in `server_config.cfg`) to the internal IP address of the machine running the server.
+    *   Clients will then connect to your public IP address (and the forwarded port). You can find your public IP address by searching "what is my ip" on Google.
+
+2.  **Service Tunneling (e.g., playit.gg):**
+    *   Use a service like playit.gg (or similar) to create a tunnel to your server.
+    *   Configure the service to tunnel UDP traffic on your chosen port.
+    *   The service will provide you with a public IP address and port.
+    *   Use the provided IP address and port as the `server_ip` and `server_port` parameters in the client's `client_config.cfg` or when prompted.
 
 ## Build Instructions
 
