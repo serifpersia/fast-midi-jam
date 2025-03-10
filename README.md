@@ -50,3 +50,6 @@ Connect and play MIDI instruments together with others in real-time over a local
     second_midi_port_open=false
     second_midi_in_port=2
     ```
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
