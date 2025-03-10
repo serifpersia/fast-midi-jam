@@ -8,7 +8,7 @@ Connect and play MIDI instruments together with others in real-time over a local
 
 ## Downloads
 
-[![Release](https://img.shields.io/github/release/[YOUR_GITHUB_USERNAME]/[YOUR_REPO_NAME].svg?style=flat-square)](https://github.com/[YOUR_GITHUB_USERNAME]/[YOUR_REPO_NAME]/releases)
+[![Release](https://img.shields.io/github/release/[YOUR_GITHUB_USERNAME]/[YOUR_REPO_NAME].svg?style=flat-square)](https://github.com/serifpersia/fast-midi-jam/releases)
 
 ## Remote Usage
 
