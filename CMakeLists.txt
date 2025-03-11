@@ -16,13 +16,15 @@ else()
     set(WIN_LIBS "")
 endif()
 
-# Add static linking for MinGW
+# Static linking for MinGW
 if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static -static-libgcc -static-libstdc++")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
     set(WIN_LIBS ${WIN_LIBS} -lstdc++ -lgcc)
 endif()
 
-# Find Boost Libraries
+# Force static Boost libraries
+set(Boost_USE_STATIC_LIBS ON)
 find_package(Boost 1.74 REQUIRED COMPONENTS asio beast json)
 include_directories(${Boost_INCLUDE_DIRS})
 
@@ -59,7 +61,7 @@ endif()
 add_library(midi_utils STATIC ${CMAKE_SOURCE_DIR}/midi_utils.cpp)
 target_link_libraries(midi_utils PRIVATE rtmidi ${WIN_LIBS})
 
-# Server executable (if needed)
+# Server executable
 add_executable(MidiJamServer ${CMAKE_SOURCE_DIR}/server.cpp)
 target_link_libraries(MidiJamServer PRIVATE Boost::asio ${WIN_LIBS})
 
@@ -75,12 +77,9 @@ set_target_properties(MidiJamServer MidiJamClient PROPERTIES
 )
 
 # Static Assets Handling
-file(GLOB STATIC_ASSETS "${CMAKE_SOURCE_DIR}/static/*") # Adjust path as needed
-
-# Create static directory in build
+file(GLOB STATIC_ASSETS "${CMAKE_SOURCE_DIR}/static/*")
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/static")
 
-# Copy static assets to build directory
 foreach(ASSET ${STATIC_ASSETS})
     get_filename_component(ASSET_NAME ${ASSET} NAME)
     add_custom_command(
