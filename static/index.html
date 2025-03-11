@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MidiJam Client</title>
+    <style>
+        body {
+            font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e6e6e6;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: rgba(34, 40, 66, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            width: 100%;
+            max-width: 550px;
+            border: 1px solid rgba(78, 93, 148, 0.2);
+        }
+        h1 {
+            text-align: center;
+            color: #00d4ff;
+            margin-bottom: 25px;
+            text-shadow: 0 2px 4px rgba(0, 212, 255, 0.3);
+        }
+        label {
+            display: block;
+            margin: 12px 0 6px;
+            color: #a3bffa;
+            font-weight: 500;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #4e5d94;
+            border-radius: 8px;
+            background: #2a2f4f;
+            color: #e6e6e6;
+            font-size: 16px;
+            box-sizing: border-box;
+            transition: border-color 0.3s;
+        }
+        input:focus, select:focus {
+            border-color: #00d4ff;
+            outline: none;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(45deg, #00d4ff, #7b2cbf);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: transform 0.2s, opacity 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            opacity: 0.9;
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        .status-message {
+            margin-top: 15px;
+            text-align: center;
+            font-size: 16px;
+            color: #e6e6e6;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+        .status-message.show {
+            opacity: 1;
+        }
+        .status-message.success {
+            color: #00d4ff;
+        }
+        .status-message.error {
+            color: #ff6b6b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MidiJam Client Setup</h1>
+        <form id="configForm">
+            <label for="nickname">Nickname:</label>
+            <input type="text" id="nickname" required>
+
+            <label for="server">Server IP:Port (e.g., 127.0.0.1:5000):</label>
+            <input type="text" id="server" value="127.0.0.1:5000" required>
+
+            <label for="channel">MIDI Channel:</label>
+            <select id="channel"></select>
+
+            <label for="midiIn">MIDI Input Port:</label>
+            <select id="midiIn"></select>
+
+            <label for="midiOut">MIDI Output Port:</label>
+            <select id="midiOut"></select>
+
+            <label for="midiIn2">Second MIDI Input Port (optional):</label>
+            <select id="midiIn2">
+                <option value="-1">None</option>
+            </select>
+
+            <button type="submit" id="jamButton">Start Jam</button>
+            <div id="statusMessage" class="status-message"></div>
+        </form>
+    </div>
+
+    <script>
+        let isConnected = false;
+        const jamButton = document.getElementById('jamButton');
+        const statusMessage = document.getElementById('statusMessage');
+
+        function showStatus(message, isSuccess = true) {
+            statusMessage.textContent = message;
+            statusMessage.className = `status-message ${isSuccess ? 'success' : 'error'}`;
+            statusMessage.classList.add('show');
+            setTimeout(() => {
+                statusMessage.classList.remove('show');
+            }, 3000); // Fade out after 3 seconds
+        }
+
+        async function checkClientStatus() {
+            const response = await fetch('/status');
+            const status = await response.json();
+            isConnected = status.isConnected;
+            jamButton.textContent = isConnected ? 'Stop Jam' : 'Start Jam';
+        }
+
+        async function populateMidiPorts() {
+            const response = await fetch('/midi-ports');
+            const ports = await response.json();
+            const midiIn = document.getElementById('midiIn');
+            const midiOut = document.getElementById('midiOut');
+            const midiIn2 = document.getElementById('midiIn2');
+            const channelSelect = document.getElementById('channel');
+
+            for (let i = 1; i <= 16; i++) {
+                const opt = document.createElement('option');
+                opt.value = i - 1;
+                opt.text = `Channel ${i}`;
+                channelSelect.appendChild(opt);
+            }
+
+            ports.inputs.forEach((name, i) => {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.text = name || `Port ${i}`;
+                midiIn.appendChild(opt.cloneNode(true));
+                midiIn2.appendChild(opt);
+            });
+
+            ports.outputs.forEach((name, i) => {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.text = name || `Port ${i}`;
+                midiOut.appendChild(opt);
+            });
+        }
+
+        document.getElementById('configForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (isConnected) {
+                const response = await fetch('/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const result = await response.text();
+                if (response.ok) {
+                    isConnected = false;
+                    jamButton.textContent = 'Start Jam';
+                    showStatus('Jam stopped successfully!');
+                } else {
+                    showStatus(result, false);
+                }
+                return;
+            }
+
+            const [server_ip, server_port] = document.getElementById('server').value.split(':');
+            const config = {
+                server_ip,
+                server_port: parseInt(server_port),
+                nickname: document.getElementById('nickname').value,
+                channel: parseInt(document.getElementById('channel').value),
+                midi_in: parseInt(document.getElementById('midiIn').value),
+                midi_out: parseInt(document.getElementById('midiOut').value),
+                midi_in_2: parseInt(document.getElementById('midiIn2').value)
+            };
+
+            const response = await fetch('/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            });
+            const result = await response.text();
+            
+            if (response.ok) {
+                isConnected = true;
+                jamButton.textContent = 'Stop Jam';
+                showStatus('Jam started successfully!');
+            } else {
+                showStatus(result, false);
+            }
+        });
+
+        // Initialize on page load
+        Promise.all([populateMidiPorts(), checkClientStatus()]);
+    </script>
+</body>
+</html>
