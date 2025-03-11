@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <array>
+#include <thread>
 
 using boost::asio::ip::udp;
 
@@ -20,19 +21,30 @@ struct Client {
 
 class MidiJamServer {
     static constexpr size_t BUFFER_SIZE = 64;
-
+    
+    boost::asio::io_context io_context_;
     udp::socket socket_;
     std::unordered_map<std::string, Client> clients_;
     std::array<char, BUFFER_SIZE> buffer_;
 
 public:
-    MidiJamServer(boost::asio::io_context& io_context, short port = 5000)
-        : socket_(io_context, udp::endpoint(udp::v4(), port)) {
+    MidiJamServer(short port = 5000)
+        : socket_(io_context_, udp::endpoint(udp::v4(), port)) {
         socket_.set_option(boost::asio::socket_base::reuse_address(true));
         socket_.set_option(boost::asio::socket_base::receive_buffer_size(65536));
         socket_.set_option(boost::asio::socket_base::send_buffer_size(65536));
         start_receive();
         std::cout << "Server started on UDP port " << port << "\n";
+    }
+
+    void run() {
+        std::vector<std::thread> threads;
+        for (size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
+            threads.emplace_back([this]() { io_context_.run(); });
+        }
+        for (auto& t : threads) {
+            if (t.joinable()) t.join();
+        }
     }
 
 private:
@@ -44,8 +56,7 @@ private:
                 if (!ec && bytes > 0) {
                     handle_packet(*sender, bytes);
                 } else if (ec && ec != boost::asio::error::operation_aborted) {
-                    // Ignore expected disconnect-related errors
-                    if (ec.value() != 10054) {  // WSAECONNRESET on Windows
+                    if (ec.value() != 10054) {
                         std::cerr << "Receive error: " << ec.message() << " (code: " << ec.value() << ")\n";
                     }
                 }
@@ -83,7 +94,7 @@ private:
                         if (ec) {
                             if (ec == boost::asio::error::connection_refused ||
                                 ec == boost::asio::error::host_unreachable ||
-                                ec.value() == 10054) {  // WSAECONNRESET
+                                ec.value() == 10054) {
                                 std::cout << "Client " << clients_[id].nickname << " @ " << id << " unreachable, removing\n";
                                 clients_.erase(id);
                             } else {
@@ -101,9 +112,8 @@ private:
 
 int main() {
     try {
-        boost::asio::io_context io_context(1);
-        MidiJamServer server(io_context);
-        io_context.run();
+        MidiJamServer server;
+        server.run();
     } catch (const std::exception& e) {
         std::cerr << "Fatal error: " << e.what() << "\n";
         return 1;

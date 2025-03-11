@@ -5,6 +5,7 @@
 #include <thread>
 #include <chrono>
 #include <csignal>
+#include <span> // C++20
 #include "RtMidi.h"
 #include "midi_utils.h"
 
@@ -13,17 +14,21 @@ using boost::asio::ip::udp;
 class MidiJamClient {
     static constexpr size_t BUFFER_SIZE = 64;
     static constexpr std::chrono::milliseconds POLL_INTERVAL{1};
+    static constexpr auto HEARTBEAT_INTERVAL = std::chrono::seconds(5);
 
-    udp::socket socket_;
+    std::vector<boost::asio::io_context> io_contexts_; // Multiple contexts
+    std::vector<std::unique_ptr<udp::socket>> sockets_; // One socket per context
     udp::endpoint server_endpoint_;
     std::string nickname_;
     RtMidiIn midi_in_;
     RtMidiIn midi_in_2_;
     RtMidiOut midi_out_;
-    std::array<unsigned char, BUFFER_SIZE> recv_buffer_;
+    std::array<unsigned char, BUFFER_SIZE> recv_buffer_; // Pre-allocated
     volatile bool running_ = true;
     uint8_t midi_channel_;
     bool has_second_input_ = false;
+    boost::asio::steady_timer heartbeat_timer_; // For keep-alive
+    std::vector<std::thread> thread_pool_; // Thread pool
 
     static void midi_callback(double, std::vector<unsigned char>* msg, void* userData) noexcept {
         if (!msg || msg->empty() || !userData) return;
@@ -35,7 +40,7 @@ class MidiJamClient {
         std::vector<unsigned char> adjusted = *msg;
         adjusted[0] = status | (client->midi_channel_ & 0x0F);
         
-        client->socket_.async_send_to(
+        client->sockets_[0]->async_send_to(
             boost::asio::buffer(adjusted), client->server_endpoint_,
             [](const boost::system::error_code& ec, std::size_t) {
                 if (ec) std::cerr << "MIDI send error: " << ec.message() << "\n";
@@ -47,7 +52,7 @@ class MidiJamClient {
         if (signal == SIGINT && signal_user_data_) {
             auto* client = static_cast<MidiJamClient*>(signal_user_data_);
             client->running_ = false;
-            client->socket_.send_to(boost::asio::buffer("QUIT"), client->server_endpoint_);
+            client->sockets_[0]->send_to(boost::asio::buffer("QUIT"), client->server_endpoint_);
             std::cout << "Shutting down...\n";
         }
     }
@@ -55,31 +60,43 @@ class MidiJamClient {
 public:
     static void* signal_user_data_;
 
-    MidiJamClient(boost::asio::io_context& io_context, const std::string& server_ip, short server_port,
-                  const std::string& nickname, int midi_in_port, int midi_out_port,
-                  int midi_in_port_2, uint8_t midi_channel)
-        : socket_(io_context, udp::endpoint(udp::v4(), 0)),
+    MidiJamClient(const std::string& server_ip, short server_port, const std::string& nickname,
+                  int midi_in_port, int midi_out_port, int midi_in_port_2, uint8_t midi_channel)
+        : io_contexts_(2), // Two threads for simplicity
           server_endpoint_(boost::asio::ip::make_address(server_ip), server_port),
-          nickname_(nickname), midi_channel_(midi_channel) {
-        socket_.set_option(boost::asio::socket_base::send_buffer_size(65536));
-        socket_.set_option(boost::asio::socket_base::receive_buffer_size(65536));
+          nickname_(nickname), midi_channel_(midi_channel), heartbeat_timer_(io_contexts_[0]) {
+        // Initialize sockets
+        for (size_t i = 0; i < io_contexts_.size(); ++i) {
+            sockets_.emplace_back(std::make_unique<udp::socket>(io_contexts_[i], udp::endpoint(udp::v4(), 0)));
+            sockets_[i]->set_option(boost::asio::socket_base::send_buffer_size(65536));
+            sockets_[i]->set_option(boost::asio::socket_base::receive_buffer_size(65536));
+        }
+
         signal_user_data_ = this;
         std::signal(SIGINT, &signal_handler);
         send_nickname();
         setup_midi(midi_in_port, midi_out_port, midi_in_port_2);
-        start_receive();
+        start_receive(0); // Receive on first context
+        start_heartbeat();
+
+        // Start thread pool
+        for (size_t i = 0; i < io_contexts_.size(); ++i) {
+            thread_pool_.emplace_back([this, i]() { io_contexts_[i].run(); });
+        }
     }
 
     ~MidiJamClient() {
         if (running_) {
             running_ = false;
-            socket_.send_to(boost::asio::buffer("QUIT"), server_endpoint_);
+            sockets_[0]->send_to(boost::asio::buffer("QUIT"), server_endpoint_);
         }
+        for (auto& ctx : io_contexts_) ctx.stop();
+        for (auto& t : thread_pool_) if (t.joinable()) t.join();
     }
 
 private:
     void send_nickname() noexcept {
-        socket_.send_to(boost::asio::buffer(nickname_), server_endpoint_);
+        sockets_[0]->send_to(boost::asio::buffer(nickname_), server_endpoint_);
         std::cout << "Connected as " << nickname_ << " to " << server_endpoint_
                   << " on MIDI channel " << (int)(midi_channel_ + 1) << "\n";
     }
@@ -103,22 +120,36 @@ private:
         }
     }
 
-    void start_receive() noexcept {
+    void start_receive(size_t context_index) noexcept {
         auto sender = std::make_shared<udp::endpoint>();
-        socket_.async_receive_from(
+        sockets_[context_index]->async_receive_from(
             boost::asio::buffer(recv_buffer_), *sender,
-            [this, sender](const boost::system::error_code& ec, std::size_t bytes) {
+            [this, context_index, sender](const boost::system::error_code& ec, std::size_t bytes) {
                 if (!ec && bytes > 0) {
                     std::vector<unsigned char> msg(recv_buffer_.begin(), recv_buffer_.begin() + bytes);
                     MidiUtils::sendMidiMessage(midi_out_, msg);
+                    if (bytes == 4 && std::strncmp(reinterpret_cast<char*>(recv_buffer_.data()), "PING", 4) == 0) {
+                        sockets_[context_index]->send_to(boost::asio::buffer("PONG"), server_endpoint_);
+                    }
                 }
-                if (running_) start_receive();
+                if (running_) start_receive(context_index);
             });
+    }
+
+    void start_heartbeat() noexcept {
+        heartbeat_timer_.expires_after(HEARTBEAT_INTERVAL);
+        heartbeat_timer_.async_wait([this](const boost::system::error_code& ec) {
+            if (!ec && running_) {
+                sockets_[0]->send_to(boost::asio::buffer("PONG"), server_endpoint_);
+                start_heartbeat();
+            }
+        });
     }
 };
 
 void* MidiJamClient::signal_user_data_ = nullptr;
 
+// Main function remains unchanged from your original, just updated to use the new constructor
 int main() {
     try {
         boost::asio::io_context io_context(1);
@@ -210,9 +241,9 @@ int main() {
             std::cout << "Invalid input. Enter 'y' or 'n'. Try again.\n";
         }
 
-        MidiJamClient client(io_context, server_ip, server_port, nickname, 
+        MidiJamClient client(server_ip, server_port, nickname, 
                             midi_in_port, midi_out_port, midi_in_port_2, midi_channel);
-        io_context.run();
+        std::this_thread::sleep_for(std::chrono::hours(1)); // Keep main thread alive
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << "\n";
         return 1;
