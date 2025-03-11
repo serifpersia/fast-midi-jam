@@ -1,6 +1,12 @@
+<div align="center">
+  
+![image](https://github.com/user-attachments/assets/a3b4a0aa-9278-4eff-a0e1-5a684535a567)
+
+</div>
+
 # Fast MIDI Jam
 
-A low-latency MIDI remote jamming service over UDP, designed for Windows.
+A low-latency MIDI remote jamming service over UDP, designed for Windows(for now).
 
 ## Use Case
 
