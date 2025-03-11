@@ -15,14 +15,14 @@ Connect and play MIDI instruments together with others in real-time over a local
 To connect clients and a server over the internet, the server needs to be accessible from the outside. You can achieve this in two ways:
 
 1.  **Port Forwarding:**
-    *   Configure your router to forward the UDP port used by the server (specified in `server_config.cfg`) to the internal IP address of the machine running the server.
+    *   Configure your router to forward the UDP port used by the server (5000) to the internal IP address of the machine running the server.
     *   Clients will then connect to your public IP address (and the forwarded port). You can find your public IP address by searching "what is my ip" on Google.
 
-2.  **Service Tunneling (e.g., playit.gg):**
+2.  **Service Tunneling (e.g., playit.gg, zrok(will test and report back):**
     *   Use a service like playit.gg (or similar) to create a tunnel to your server.
     *   Configure the service to tunnel UDP traffic on your chosen port.
     *   The service will provide you with a public IP address and port.
-    *   Use the provided IP address and port as the `server_ip` and `server_port` parameters in the client's `client_config.cfg` or when prompted.
+    *   Use the provided IP address and port
 
 ## Build Instructions
 
@@ -41,33 +41,9 @@ To connect clients and a server over the internet, the server needs to be access
 
 ## Running
 
-1.  **Configuration:**
-    *   **Server:** `build\MidiJamServer.exe` prompts for port/timeout if `server_config.cfg` is missing.
-    *   **Client:** `build\MidiJamClient.exe` prompts for settings if `client_config.cfg` is missing.
+1.  **Start Server:** `build\MidiJamServer.exe`
 
-2.  **Start Server:** `build\MidiJamServer.exe`
-
-3.  **Start Clients:** `build\MidiJamClient.exe`
-
-## Configuration Files
-
-*   **`server_config.cfg`:**
-    ```
-    port=5000
-    inactivity_timeout=30
-    ```
-
-*   **`client_config.cfg`:**
-    ```
-    server_ip=127.0.0.1
-    server_port=5000
-    nickname=MyMidiClient
-    midi_in_port=0
-    midi_out_port=1
-    midi_channel=3
-    second_midi_port_open=false
-    second_midi_in_port=2
-    ```
+2.  **Start Clients:** `build\MidiJamClient.exe`
 
 ## License
 
