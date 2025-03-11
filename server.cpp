@@ -3,8 +3,8 @@
 #include <vector>
 #include <unordered_map>
 #include <string>
-#include <chrono>
-#include "midi_utils.h"
+#include <memory>
+#include <array>
 
 using boost::asio::ip::udp;
 
@@ -12,98 +12,86 @@ struct Client {
     udp::endpoint endpoint;
     uint8_t channel;
     std::string nickname;
-    std::chrono::steady_clock::time_point last_active;
 
-    Client() : endpoint(), channel(0), nickname("unknown"), last_active(std::chrono::steady_clock::now()) {}
-    Client(udp::endpoint ep, uint8_t ch, std::string name) : endpoint(std::move(ep)), channel(ch), nickname(std::move(name)), last_active(std::chrono::steady_clock::now()) {}
+    Client() noexcept : endpoint(), channel(0), nickname("unknown") {}
+    Client(udp::endpoint ep, uint8_t ch, std::string name) noexcept
+        : endpoint(std::move(ep)), channel(ch), nickname(std::move(name)) {}
 };
 
 class MidiJamServer {
+    static constexpr size_t BUFFER_SIZE = 64;
+
     udp::socket socket_;
     std::unordered_map<std::string, Client> clients_;
-    std::array<char, 1024> buffer_;
-    static constexpr std::chrono::seconds INACTIVITY_TIMEOUT{30};
+    std::array<char, BUFFER_SIZE> buffer_;
 
 public:
     MidiJamServer(boost::asio::io_context& io_context, short port = 5000)
         : socket_(io_context, udp::endpoint(udp::v4(), port)) {
-        std::cout << "Server started on UDP port " << port << "\n";
+        socket_.set_option(boost::asio::socket_base::reuse_address(true));
+        socket_.set_option(boost::asio::socket_base::receive_buffer_size(65536));
+        socket_.set_option(boost::asio::socket_base::send_buffer_size(65536));
         start_receive();
-        start_cleanup();
+        std::cout << "Server started on UDP port " << port << "\n";
     }
 
-    void start_receive() {
+private:
+    void start_receive() noexcept {
         auto sender = std::make_shared<udp::endpoint>();
         socket_.async_receive_from(
             boost::asio::buffer(buffer_), *sender,
-            [this, sender](boost::system::error_code ec, std::size_t bytes) {
-                if (!ec) {
-                    std::string sender_key = sender->address().to_string() + ":" + std::to_string(sender->port());
-
-                    if (clients_.find(sender_key) == clients_.end()) {
-                        std::string nickname(buffer_.begin(), buffer_.begin() + bytes);
-                        clients_[sender_key] = { *sender, 0, nickname };
-                        std::cout << "New client: " << nickname << " @ " << sender_key << "\n";
-                    } else {
-                        Client& client = clients_[sender_key];
-                        client.last_active = std::chrono::steady_clock::now();
-
-                        std::string msg(buffer_.begin(), buffer_.begin() + bytes);
-                        if (msg == "QUIT") {
-                            std::cout << "Client " << client.nickname << " @ " << sender_key << " disconnected\n";
-                            clients_.erase(sender_key);
-                        } else {
-                            if (bytes > 0) {
-                                uint8_t status_byte = static_cast<uint8_t>(buffer_[0]);
-                                if (status_byte >= 0x80 && status_byte <= 0xEF) {
-                                    client.channel = status_byte & 0x0F;
-                                }
-                            }
-                            forward_midi(sender_key, bytes);
-                        }
+            [this, sender](const boost::system::error_code& ec, std::size_t bytes) {
+                if (!ec && bytes > 0) {
+                    handle_packet(*sender, bytes);
+                } else if (ec && ec != boost::asio::error::operation_aborted) {
+                    // Ignore expected disconnect-related errors
+                    if (ec.value() != 10054) {  // WSAECONNRESET on Windows
+                        std::cerr << "Receive error: " << ec.message() << " (code: " << ec.value() << ")\n";
                     }
-                } else if (ec != boost::asio::error::operation_aborted && ec != boost::asio::error::connection_reset) {
-                    std::cerr << "Error receiving data: " << ec.message() << " (code: " << ec.value() << ")\n";
                 }
                 start_receive();
             });
     }
 
-    void forward_midi(const std::string& sender_key, std::size_t bytes) {
-        for (auto it = clients_.begin(); it != clients_.end(); ) {
-            const auto& [id, c] = *it;
-            if (id != sender_key) {
-                socket_.async_send_to(
-                    boost::asio::buffer(buffer_, bytes), c.endpoint,
-                    [this, id, c](boost::system::error_code ec, std::size_t bytes_sent) {
-                        if (ec) {
-                            std::cerr << "Failed to send to " << c.nickname << " @ " << c.endpoint << ": " << ec.message() << "\n";
-                            clients_.erase(id);
-                        }
-                    });
-                ++it;
-            } else {
-                ++it;
+    void handle_packet(const udp::endpoint& sender, std::size_t bytes) noexcept {
+        std::string sender_key = sender.address().to_string() + ":" + std::to_string(sender.port());
+        
+        auto [it, inserted] = clients_.try_emplace(sender_key, sender, 0, std::string(buffer_.data(), bytes));
+        Client& client = it->second;
+        
+        if (inserted) {
+            std::cout << "New client: " << client.nickname << " @ " << sender_key << "\n";
+        } else {
+            if (bytes == 4 && std::strncmp(buffer_.data(), "QUIT", 4) == 0) {
+                std::cout << "Client " << client.nickname << " disconnected\n";
+                clients_.erase(it);
+            } else if (bytes > 0 && (static_cast<uint8_t>(buffer_[0]) & 0xF0) >= 0x80) {
+                client.channel = static_cast<uint8_t>(buffer_[0]) & 0x0F;
+                forward_midi(sender_key, bytes);
             }
         }
     }
 
-    void start_cleanup() {
-        boost::asio::steady_timer timer(socket_.get_executor(), std::chrono::seconds(10));
-        timer.async_wait([this](const boost::system::error_code& ec) {
-            if (!ec) {
-                cleanup_inactive_clients();
-                start_cleanup();
-            }
-        });
-    }
-
-    void cleanup_inactive_clients() {
-        auto now = std::chrono::steady_clock::now();
+    void forward_midi(const std::string& sender_key, std::size_t bytes) noexcept {
+        auto buffer = std::make_shared<std::vector<char>>(buffer_.begin(), buffer_.begin() + bytes);
         for (auto it = clients_.begin(); it != clients_.end();) {
-            if (now - it->second.last_active > INACTIVITY_TIMEOUT) {
-                std::cout << "Removing inactive client: " << it->second.nickname << " @ " << it->first << "\n";
-                it = clients_.erase(it);
+            const auto& [id, client] = *it;
+            if (id != sender_key) {
+                socket_.async_send_to(
+                    boost::asio::buffer(*buffer), client.endpoint,
+                    [this, id, buffer](const boost::system::error_code& ec, std::size_t) {
+                        if (ec) {
+                            if (ec == boost::asio::error::connection_refused ||
+                                ec == boost::asio::error::host_unreachable ||
+                                ec.value() == 10054) {  // WSAECONNRESET
+                                std::cout << "Client " << clients_[id].nickname << " @ " << id << " unreachable, removing\n";
+                                clients_.erase(id);
+                            } else {
+                                std::cerr << "Send error to " << id << ": " << ec.message() << "\n";
+                            }
+                        }
+                    });
+                ++it;
             } else {
                 ++it;
             }
@@ -113,11 +101,11 @@ public:
 
 int main() {
     try {
-        boost::asio::io_context io_context;
+        boost::asio::io_context io_context(1);
         MidiJamServer server(io_context);
         io_context.run();
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << "\n";
+        std::cerr << "Fatal error: " << e.what() << "\n";
         return 1;
     }
     return 0;
