@@ -43,6 +43,9 @@ if not exist rtmidi (
     rd /s /q rtmidi-master
 )
 
+:: Remove existing build directory
+if exist build rd /s /q build
+
 :: Create and build
 if not exist build mkdir build
 cd build

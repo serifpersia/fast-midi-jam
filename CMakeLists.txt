@@ -63,7 +63,7 @@ target_link_libraries(midi_utils PRIVATE rtmidi ${WIN_LIBS})
 
 # Server executable
 add_executable(MidiJamServer ${CMAKE_SOURCE_DIR}/server.cpp)
-target_link_libraries(MidiJamServer PRIVATE Boost::asio ${WIN_LIBS})
+target_link_libraries(MidiJamServer PRIVATE Boost::asio Boost::json ${WIN_LIBS})
 
 # Client executable (Uses HTTP Server Lib)
 add_executable(MidiJamClient ${CMAKE_SOURCE_DIR}/client.cpp)

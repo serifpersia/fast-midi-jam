@@ -88,11 +88,38 @@
         .status-message.error {
             color: #ff6b6b;
         }
+        .jammers {
+            margin-top: 20px;
+            padding: 10px;
+            background: #2a2f4f;
+            border-radius: 10px;
+            min-height: 50px;
+        }
+        .jammer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .jammer:last-child { border-bottom: none; }
+        .status-circle {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: green;
+            border: 2px solid black;
+        }
+        .no-clients {
+            text-align: center;
+            color: #a3bffa;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>MidiJam Client Setup</h1>
+        <h1>MidiJam Client</h1>
         <form id="configForm">
             <label for="nickname">Nickname:</label>
             <input type="text" id="nickname" required>
@@ -117,12 +144,16 @@
             <button type="submit" id="jamButton">Start Jam</button>
             <div id="statusMessage" class="status-message"></div>
         </form>
+        <div class="jammers" id="jammers">
+            <div class="no-clients">No clients connected</div>
+        </div>
     </div>
 
     <script>
         let isConnected = false;
         const jamButton = document.getElementById('jamButton');
         const statusMessage = document.getElementById('statusMessage');
+        const jammersDiv = document.getElementById('jammers');
 
         function showStatus(message, isSuccess = true) {
             statusMessage.textContent = message;
@@ -130,7 +161,7 @@
             statusMessage.classList.add('show');
             setTimeout(() => {
                 statusMessage.classList.remove('show');
-            }, 3000); // Fade out after 3 seconds
+            }, 3000);
         }
 
         async function checkClientStatus() {
@@ -171,9 +202,31 @@
             });
         }
 
+        async function updateJammers() {
+            const response = await fetch('/clients');
+            const data = await response.json();
+            const clients = data.clients || [];
+
+            jammersDiv.innerHTML = ''; // Clear current content
+
+            if (clients.length === 0) {
+                jammersDiv.innerHTML = '<div class="no-clients">No clients connected</div>';
+            } else {
+                clients.forEach(client => {
+                    const jammer = document.createElement('div');
+                    jammer.classList.add('jammer');
+                    jammer.innerHTML = `
+                        <span>${client.nickname} (ch${client.channel + 1})</span>
+                        <div class="status-circle" style="background: ${client.active ? 'orange' : 'green'}"></div>
+                    `;
+                    jammersDiv.appendChild(jammer);
+                });
+            }
+        }
+
         document.getElementById('configForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             if (isConnected) {
                 const response = await fetch('/stop', {
                     method: 'POST',
@@ -184,6 +237,7 @@
                     isConnected = false;
                     jamButton.textContent = 'Start Jam';
                     showStatus('Jam stopped successfully!');
+                    updateJammers(); // Reset to "No clients connected"
                 } else {
                     showStatus(result, false);
                 }
@@ -207,18 +261,21 @@
                 body: JSON.stringify(config)
             });
             const result = await response.text();
-            
+
             if (response.ok) {
                 isConnected = true;
                 jamButton.textContent = 'Stop Jam';
                 showStatus('Jam started successfully!');
+                // Start polling for client list
+                setInterval(updateJammers, 1000); // Update every second
+                updateJammers(); // Initial update
             } else {
                 showStatus(result, false);
             }
         });
 
         // Initialize on page load
-        Promise.all([populateMidiPorts(), checkClientStatus()]);
+        Promise.all([populateMidiPorts(), checkClientStatus(), updateJammers()]);
     </script>
 </body>
 </html>
