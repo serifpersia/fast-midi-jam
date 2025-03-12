@@ -1,4 +1,3 @@
-// client cpp
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <boost/json.hpp>
@@ -56,7 +55,7 @@ class MidiJamClient {
         if (signal == SIGINT && signal_user_data_) {
             auto* client = static_cast<MidiJamClient*>(signal_user_data_);
             client->running_ = false;
-            client->send_quit_message(); // Send quit message to the server
+            client->udp_socket_.send_to(boost::asio::buffer("QUIT"), client->server_endpoint_);
             std::cout << "Shutting down...\n";
         }
     }
@@ -85,7 +84,7 @@ public:
     ~MidiJamClient() {
         if (running_) {
             running_ = false;
-            send_quit_message(); // Ensure quit message is sent on destruction
+            udp_socket_.send_to(boost::asio::buffer("QUIT"), server_endpoint_);
         }
         io_context_.stop();
         for (auto& t : thread_pool_) if (t.joinable()) t.join();
@@ -96,14 +95,6 @@ private:
         udp_socket_.send_to(boost::asio::buffer(nickname_), server_endpoint_);
         std::cout << "Connected as " << nickname_ << " to " << server_endpoint_
                   << " on MIDI channel " << (int)(midi_channel_ + 1) << "\n";
-    }
-
-    void send_quit_message() noexcept {
-        boost::system::error_code ec;
-        udp_socket_.send_to(boost::asio::buffer("QUIT"), server_endpoint_, 0, ec);
-        if (ec) {
-            std::cerr << "Error sending QUIT message: " << ec.message() << "\n";
-        }
     }
 
     void setup_midi(int in_port, int out_port, int in_port_2) {
@@ -134,7 +125,7 @@ private:
                     std::vector<unsigned char> msg(recv_buffer_.begin(), recv_buffer_.begin() + bytes);
                     MidiUtils::sendMidiMessage(midi_out_, msg);
                     if (bytes == 4 && std::strncmp(reinterpret_cast<char*>(recv_buffer_.data()), "PING", 4) == 0) {
-                        send_pong();
+                        udp_socket_.send_to(boost::asio::buffer("PONG"), server_endpoint_);
                     }
                 }
                 if (running_) start_receive();
@@ -145,18 +136,10 @@ private:
         heartbeat_timer_.expires_after(HEARTBEAT_INTERVAL);
         heartbeat_timer_.async_wait([this](const boost::system::error_code& ec) {
             if (!ec && running_) {
-                send_pong();
+                udp_socket_.send_to(boost::asio::buffer("PONG"), server_endpoint_);
                 start_heartbeat();
             }
         });
-    }
-
-    void send_pong() noexcept {
-        boost::system::error_code ec;
-        udp_socket_.send_to(boost::asio::buffer("PONG"), server_endpoint_, 0, ec);
-        if (ec) {
-            std::cerr << "Error sending PONG message: " << ec.message() << "\n";
-        }
     }
 };
 
