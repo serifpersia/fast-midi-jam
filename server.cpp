@@ -1,4 +1,5 @@
 #include <boost/asio.hpp>
+#include <boost/json.hpp>
 #include <iostream>
 #include <vector>
 #include <unordered_map>
@@ -9,33 +10,37 @@
 #include <chrono>
 
 using boost::asio::ip::udp;
+namespace json = boost::json;
 
-// Define Client struct outside or before its use
 struct Client {
     udp::endpoint endpoint;
     uint8_t channel;
     std::string nickname;
-    std::chrono::steady_clock::time_point last_heartbeat;  // Last activity time
+    std::chrono::steady_clock::time_point last_heartbeat;  // For connection status
+    std::chrono::steady_clock::time_point last_midi_activity;  // For MIDI activity
 
     Client() noexcept 
         : endpoint(), channel(0), nickname("unknown"), 
-          last_heartbeat(std::chrono::steady_clock::now()) {}
+          last_heartbeat(std::chrono::steady_clock::now()), 
+          last_midi_activity(std::chrono::steady_clock::time_point()) {}  // Default to epoch
     Client(udp::endpoint ep, uint8_t ch, std::string name) noexcept
         : endpoint(std::move(ep)), channel(ch), nickname(std::move(name)),
-          last_heartbeat(std::chrono::steady_clock::now()) {}
+          last_heartbeat(std::chrono::steady_clock::now()),
+          last_midi_activity(std::chrono::steady_clock::time_point()) {}
 };
 
 class MidiJamServer {
     static constexpr size_t BUFFER_SIZE = 64;
-    static constexpr auto HEARTBEAT_TIMEOUT = std::chrono::seconds(10);  // Timeout for inactive clients
-    static constexpr auto HEARTBEAT_INTERVAL = std::chrono::seconds(5);  // Server ping interval
+    static constexpr auto HEARTBEAT_TIMEOUT = std::chrono::seconds(10);  // Timeout for connection
+    static constexpr auto MIDI_ACTIVITY_TIMEOUT = std::chrono::seconds(5);  // Timeout for MIDI activity
+    static constexpr auto HEARTBEAT_INTERVAL = std::chrono::seconds(5);
 
     boost::asio::io_context io_context_;
     udp::socket socket_;
-    std::unordered_map<std::string, Client> clients_;  // Now Client is known
+    std::unordered_map<std::string, Client> clients_;
     std::array<char, BUFFER_SIZE> buffer_;
-    boost::asio::steady_timer cleanup_timer_;  // Timer for checking client heartbeats
-    boost::asio::steady_timer ping_timer_;     // Timer for sending periodic pings
+    boost::asio::steady_timer cleanup_timer_;
+    boost::asio::steady_timer ping_timer_;
 
 public:
     MidiJamServer(short port = 5000)
@@ -62,29 +67,21 @@ public:
     }
 
 private:
-	void start_receive() noexcept {
-		auto sender = std::make_shared<udp::endpoint>();
-		socket_.async_receive_from(
-			boost::asio::buffer(buffer_), *sender,
-			[this, sender](const boost::system::error_code& ec, std::size_t bytes) {
-				if (!ec && bytes > 0) {
-					//std::cout << "[Server] Received " << bytes << " bytes from " << sender->address().to_string() << ":" << sender->port() << " - Data: ";
-					for (std::size_t i = 0; i < bytes; ++i) {
-						std::cout << std::hex << static_cast<int>(buffer_[i]) << " ";
-					}
-					std::cout << std::dec << std::endl;
-
-					handle_packet(*sender, bytes);
-				}
-				start_receive();  // Continue listening
-			});
-	}
-
+    void start_receive() noexcept {
+        auto sender = std::make_shared<udp::endpoint>();
+        socket_.async_receive_from(
+            boost::asio::buffer(buffer_), *sender,
+            [this, sender](const boost::system::error_code& ec, std::size_t bytes) {
+                if (!ec && bytes > 0) {
+                    handle_packet(*sender, bytes);
+                }
+                start_receive();
+            });
+    }
 
     void handle_packet(const udp::endpoint& sender, std::size_t bytes) noexcept {
         std::string sender_key = sender.address().to_string() + ":" + std::to_string(sender.port());
 
-        // Handle explicit disconnect
         if (bytes == 4 && std::strncmp(buffer_.data(), "QUIT", 4) == 0) {
             if (auto it = clients_.find(sender_key); it != clients_.end()) {
                 std::cout << "Client disconnected: " << it->second.nickname << " @ " << sender_key << "\n";
@@ -93,10 +90,14 @@ private:
             return;
         }
 
-        // Handle new connection or update existing client
+        if (bytes == 5 && std::strncmp(buffer_.data(), "CLIST", 5) == 0) {
+            send_client_list(sender);
+            return;
+        }
+
         auto [it, inserted] = clients_.try_emplace(sender_key, sender, 0, std::string(buffer_.data(), bytes));
         Client& client = it->second;
-        client.last_heartbeat = std::chrono::steady_clock::now();  // Update heartbeat timestamp
+        client.last_heartbeat = std::chrono::steady_clock::now();  // Always update heartbeat
 
         if (inserted) {
             std::cout << "New client connected: " << client.nickname << " @ " << sender_key << "\n";
@@ -105,13 +106,37 @@ private:
                     if (ec) std::cerr << "Ping send error: " << ec.message() << "\n";
                 });
         } else if (bytes == 4 && std::strncmp(buffer_.data(), "PONG", 4) == 0) {
-            // Heartbeat response received
             std::cout << "Heartbeat received from " << client.nickname << " @ " << sender_key << "\n";
         } else if (bytes > 0 && (static_cast<uint8_t>(buffer_[0]) & 0xF0) >= 0x80) {
-            // MIDI message
             client.channel = static_cast<uint8_t>(buffer_[0]) & 0x0F;
+            client.last_midi_activity = std::chrono::steady_clock::now();  // Update MIDI activity
             forward_midi(sender_key, bytes);
         }
+    }
+
+    void send_client_list(const udp::endpoint& sender) noexcept {
+        json::object client_list;
+        json::array clients_array;
+
+        for (const auto& [id, client] : clients_) {
+            json::object client_info;
+            client_info["nickname"] = client.nickname;
+            client_info["channel"] = client.channel;
+            // Active if MIDI activity within 5 seconds
+            bool is_active = (client.last_midi_activity != std::chrono::steady_clock::time_point() &&
+                              std::chrono::steady_clock::now() - client.last_midi_activity < MIDI_ACTIVITY_TIMEOUT);
+            client_info["active"] = is_active;
+            clients_array.push_back(client_info);
+        }
+
+        client_list["clients"] = clients_array;
+        std::string json_str = json::serialize(client_list);
+
+        socket_.async_send_to(
+            boost::asio::buffer(json_str), sender,
+            [](const boost::system::error_code& ec, std::size_t) {
+                if (ec) std::cerr << "Client list send error: " << ec.message() << "\n";
+            });
     }
 
     void forward_midi(const std::string& sender_key, std::size_t bytes) noexcept {
@@ -121,9 +146,7 @@ private:
                 socket_.async_send_to(
                     boost::asio::buffer(*buffer), client.endpoint,
                     [](const boost::system::error_code& ec, std::size_t) {
-                        if (ec) {
-                            std::cerr << "Send error: " << ec.message() << "\n";
-                        }
+                        if (ec) std::cerr << "Send error: " << ec.message() << "\n";
                     });
             }
         }
@@ -142,7 +165,7 @@ private:
                         ++it;
                     }
                 }
-                start_cleanup();  // Schedule next cleanup
+                start_cleanup();
             }
         });
     }
@@ -157,7 +180,7 @@ private:
                             if (ec) std::cerr << "Ping send error: " << ec.message() << "\n";
                         });
                 }
-                start_ping();  // Schedule next ping
+                start_ping();
             }
         });
     }
@@ -165,7 +188,7 @@ private:
 
 int main() {
     try {
-        MidiJamServer server(5000);  // Start server on port 5000
+        MidiJamServer server(5000);
         server.run();
     } catch (const std::exception& e) {
         std::cerr << "Fatal error: " << e.what() << "\n";
