@@ -99,22 +99,24 @@
             min-height: 60px;
             transition: box-shadow 0.3s ease;
         }
-        .jammers:hover {
-            box-shadow: inset 0 2px 15px rgba(0, 212, 255, 0.1), 0 4px 20px rgba(0, 0, 0, 0.5);
-        }
         .jammer {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 10px 15px;
+            padding: 15px 15px;
             margin: 5px 0;
             background: rgba(255, 255, 255, 0.05);
             border-radius: 8px;
         }
-        .jammer:hover {
-            transform: scale(1.02);
-            background: rgba(255, 255, 255, 0.1);
-        }
+		.jammer-info {
+			flex-grow: 1;
+			text-align: left;
+		}
+		.jammer-status {
+			display: flex;
+			align-items: center;
+			gap: 10px; /* Space between circle and latency */
+		}
         .jammer span {
             font-size: 16px;
             color: #e6e6e6;
@@ -146,6 +148,11 @@
             background: linear-gradient(45deg, #4e5d94, #3a446b);
             box-shadow: 0 0 4px rgba(78, 93, 148, 0.4);
         }
+		.jammer span.latency {
+        font-size: 14px;
+        color: #a3bffa;
+        margin-left: 10px;
+		}
         .no-clients {
             text-align: center;
             color: #a3bffa;
@@ -273,51 +280,58 @@
 
 
 
-function animateFetchingClients() {
-    const statusMessage = document.getElementById('statusMessage');
-    if (!statusMessage) return;
+		function animateFetchingClients() {
+			const statusMessage = document.getElementById('statusMessage');
+			if (!statusMessage) return;
 
-    clearInterval(fetchInterval);
-    dots = 0;
-    fetchInterval = setInterval(() => {
-        dots = (dots + 1) % 4; // Cycle between 0 to 3 dots
-        statusMessage.textContent = "Fetching Clients" + ".".repeat(dots);
-    }, 500);
-}
+			clearInterval(fetchInterval);
+			dots = 0;
+			fetchInterval = setInterval(() => {
+				dots = (dots + 1) % 4; // Cycle between 0 to 3 dots
+				statusMessage.textContent = "Fetching Clients" + ".".repeat(dots);
+			}, 500);
+		}
 
-function stopFetchingAnimation() {
-    clearInterval(fetchInterval);
-    const statusMessage = document.getElementById('statusMessage');
-    if (statusMessage) statusMessage.textContent = "";
-}
+		function stopFetchingAnimation() {
+			clearInterval(fetchInterval);
+			const statusMessage = document.getElementById('statusMessage');
+			if (statusMessage) statusMessage.textContent = "";
+		}
 
-// Modify updateJammers to trigger animation
-async function updateJammers() {
-    animateFetchingClients();
-    try {
-        const response = await fetch('/clients');
-        const data = await response.json();
-        const clients = data.clients || [];
-        const jammersDiv = document.getElementById('jammers');
+		async function updateJammers() {
+			animateFetchingClients();
+			try {
+				const response = await fetch('/clients');
+				const data = await response.json();
+				const clients = data.clients || [];
+				const jammersDiv = document.getElementById('jammers');
 
-        if (clients.length === 0) {
-            jammersDiv.innerHTML = '<div class="no-clients">No clients connected</div>';
-        } else {
-            jammersDiv.innerHTML = '';
-            clients.forEach(client => {
-                const jammer = document.createElement('div');
-                jammer.classList.add('jammer');
-                jammer.innerHTML = `<span>${client.nickname} (ch${client.channel + 1})</span>
-                    <div class="status-circle ${client.active ? 'active' : 'inactive'}"></div>`;
-                jammersDiv.appendChild(jammer);
-            });
-        }
+				if (clients.length === 0) {
+					jammersDiv.innerHTML = '<div class="no-clients">No clients connected</div>';
+				} else {
+					jammersDiv.innerHTML = '';
+					clients.forEach(client => {
+						const jammer = document.createElement('div');
+						jammer.classList.add('jammer');
+						const latency = client.latency_ms >= 0 ? `${client.latency_ms}ms` : 'N/A';
+						jammer.innerHTML = `
+							<span class="jammer-info">${client.nickname} (ch${client.channel + 1})</span>
+							<div class="jammer-status">
+								<div class="status-circle ${client.active ? 'active' : 'inactive'}"></div>
+								<span class="latency">${latency}</span>
+							</div>
+						`;
+						jammersDiv.appendChild(jammer);
+					});
+				}
 
-        stopFetchingAnimation(); // Stop animation when data is fetched
-    } catch (e) {
-        console.error("Error fetching clients:", e);
-    }
-}
+				stopFetchingAnimation();
+			} catch (e) {
+				console.error("Error fetching clients:", e);
+				stopFetchingAnimation();
+			}
+		}
+		
 		document.getElementById('configForm').addEventListener('submit', async (e) => {
 			e.preventDefault();
 
@@ -369,7 +383,7 @@ async function updateJammers() {
 				jamButton.textContent = 'Stop Jam';
 				showStatus('Jam started successfully!');
 				if (!updateInterval) {
-					updateInterval = setInterval(updateJammers, 1000);
+					updateInterval = setInterval(updateJammers, 5000);
 				}
 				updateJammers();
 			} else {

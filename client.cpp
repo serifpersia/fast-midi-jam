@@ -46,7 +46,6 @@ static Logger logger;
 class MidiJamClient {
     static constexpr size_t BUFFER_SIZE = 64;
     static constexpr size_t JSON_BUFFER_SIZE = 4096;
-    static constexpr auto HEARTBEAT_INTERVAL = std::chrono::seconds(10);
     static constexpr auto CLIENT_LIST_INTERVAL = std::chrono::seconds(5);
 
     boost::asio::io_context io_context_;
@@ -61,7 +60,6 @@ class MidiJamClient {
     volatile bool running_ = true;
     uint8_t midi_channel_;
     bool has_second_input_ = false;
-    boost::asio::steady_timer heartbeat_timer_;
     boost::asio::steady_timer client_list_timer_;
     std::vector<std::thread> thread_pool_;
     bool connected_ = false;
@@ -93,8 +91,7 @@ public:
                   int midi_in_port, int midi_out_port, int midi_in_port_2, uint8_t midi_channel)
         : udp_socket_(io_context_, udp::endpoint(udp::v4(), 0)),
           server_endpoint_(boost::asio::ip::make_address(server_ip), server_port),
-          nickname_(nickname), midi_channel_(midi_channel), 
-          heartbeat_timer_(io_context_), client_list_timer_(io_context_),
+          nickname_(nickname), midi_channel_(midi_channel), client_list_timer_(io_context_),
           midi_in_port_(midi_in_port), midi_out_port_(midi_out_port), midi_in_port_2_(midi_in_port_2) {
         try {
             connect();
@@ -116,7 +113,6 @@ public:
             send_nickname();
             setup_midi(midi_in_port_, midi_out_port_, midi_in_port_2_);
             start_receive();
-            start_heartbeat();
             start_client_list_requests();
             connected_ = true;
             thread_pool_.emplace_back([this]() { io_context_.run(); });
@@ -135,7 +131,6 @@ public:
         udp_socket_.send_to(boost::asio::buffer("QUIT", 4), server_endpoint_, 0, ec);
         if (ec) logger.log("Error sending QUIT: " + ec.message());
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        heartbeat_timer_.cancel();
         client_list_timer_.cancel();
         io_context_.stop();
         for (auto& t : thread_pool_) if (t.joinable()) t.join();
@@ -221,18 +216,6 @@ private:
                 }
                 if (running_) start_receive();
             });
-    }
-
-    void start_heartbeat() noexcept {
-        heartbeat_timer_.expires_after(HEARTBEAT_INTERVAL);
-        heartbeat_timer_.async_wait([this](const boost::system::error_code& ec) {
-            if (!ec && running_ && connected_) {
-                boost::system::error_code send_ec;
-                udp_socket_.send_to(boost::asio::buffer("PONG", 4), server_endpoint_, 0, send_ec);
-                if (!send_ec) start_heartbeat();
-                else logger.log("Heartbeat send error: " + send_ec.message());
-            }
-        });
     }
 
     void start_client_list_requests() noexcept {
