@@ -140,16 +140,11 @@
             height: 24px;
             border-radius: 50%;
             border: 2px solid rgba(0, 212, 255, 0.5);
-            animation: ripple 2s infinite ease-out;
             opacity: 0;
         }
         .status-circle.inactive {
             background: linear-gradient(45deg, #4e5d94, #3a446b);
             box-shadow: 0 0 4px rgba(78, 93, 148, 0.4);
-        }
-        @keyframes ripple {
-            0% { transform: scale(1); opacity: 0.8; }
-            100% { transform: scale(1.5); opacity: 0; }
         }
         .no-clients {
             text-align: center;
@@ -192,137 +187,176 @@
             <div class="no-clients">No clients connected</div>
         </div>
     </div>
-		<script>
+    <script>
 		let isConnected = false;
+		let updateInterval = null;
 		const jamButton = document.getElementById('jamButton');
 		const statusMessage = document.getElementById('statusMessage');
 		const jammersDiv = document.getElementById('jammers');
-
+		let fetchInterval;
+		let dots = 0;
+		
 		function showStatus(message, isSuccess = true) {
 			statusMessage.textContent = message;
 			statusMessage.className = `status-message ${isSuccess ? 'success' : 'error'}`;
 			statusMessage.classList.add('show');
-			setTimeout(() => {
-				statusMessage.classList.remove('show');
-			}, 3000);
+			setTimeout(() => statusMessage.classList.remove('show'), 3000);
 		}
 
 		async function checkClientStatus() {
-			const response = await fetch('/status');
-			const status = await response.json();
-			isConnected = status.isConnected;
-			jamButton.textContent = isConnected ? 'Stop Jam' : 'Start Jam';
+			try {
+				const response = await fetch('/status');
+				const status = await response.json();
+				isConnected = status.isConnected;
+				jamButton.textContent = isConnected ? 'Stop Jam' : 'Start Jam';
+			} catch (e) {
+				showStatus("Failed to check status: " + e.message, false);
+			}
+		}
+
+		async function loadConfig() {
+			try {
+				const response = await fetch('/config');
+				const config = await response.json();
+				if (Object.keys(config).length > 0) {
+					document.getElementById('server').value = `${config.server_ip}:${config.server_port}`;
+					document.getElementById('nickname').value = config.nickname;
+					document.getElementById('channel').value = config.channel;
+					document.getElementById('midiIn').value = config.midi_in;
+					document.getElementById('midiOut').value = config.midi_out;
+					document.getElementById('midiIn2').value = config.midi_in_2;
+				}
+			} catch (e) {
+				showStatus("Failed to load config: " + e.message, false);
+			}
 		}
 
 		async function populateMidiPorts() {
-			const response = await fetch('/midi-ports');
-			const ports = await response.json();
-			const midiIn = document.getElementById('midiIn');
-			const midiOut = document.getElementById('midiOut');
-			const midiIn2 = document.getElementById('midiIn2');
-			const channelSelect = document.getElementById('channel');
+			try {
+				const response = await fetch('/midi-ports');
+				if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+				const ports = await response.json();
+				const midiIn = document.getElementById('midiIn');
+				const midiOut = document.getElementById('midiOut');
+				const midiIn2 = document.getElementById('midiIn2');
+				const channelSelect = document.getElementById('channel');
 
-			for (let i = 1; i <= 16; i++) {
-				const opt = document.createElement('option');
-				opt.value = i - 1;
-				opt.text = `Channel ${i}`;
-				channelSelect.appendChild(opt);
-			}
-
-			ports.inputs.forEach((name, i) => {
-				const opt = document.createElement('option');
-				opt.value = i;
-				opt.text = name || `Port ${i}`;
-				midiIn.appendChild(opt.cloneNode(true));
-				midiIn2.appendChild(opt);
-			});
-
-			ports.outputs.forEach((name, i) => {
-				const opt = document.createElement('option');
-				opt.value = i;
-				opt.text = name || `Port ${i}`;
-				midiOut.appendChild(opt);
-			});
-		}
-
-		async function updateJammers() {
-			const response = await fetch('/clients');
-			const data = await response.json();
-			const clients = data.clients || [];
-			const existingJammers = new Map();
-
-			// Get current jammer elements
-			document.querySelectorAll('.jammer').forEach(jammer => {
-				const nickname = jammer.getAttribute('data-nickname');
-				existingJammers.set(nickname, jammer);
-			});
-
-			if (clients.length === 0) {
-				// Show "No clients connected" only if not already present
-				if (!document.querySelector('.no-clients')) {
-					jammersDiv.innerHTML = '<div class="no-clients">No clients connected</div>';
-				}
-				return;
-			}
-
-			jammersDiv.innerHTML = ''; // Clear container for new list
-
-			clients.forEach(client => {
-				let jammer = existingJammers.get(client.nickname);
-
-				if (!jammer) {
-					// Create a new jammer element if it doesn't exist
-					jammer = document.createElement('div');
-					jammer.classList.add('jammer');
-					jammer.setAttribute('data-nickname', client.nickname);
-					jammer.innerHTML = `
-						<span>${client.nickname} (ch${client.channel + 1})</span>
-						<div class="status-circle"></div>
-					`;
+				// Populate MIDI channels (0-15, displayed as 1-16)
+				for (let i = 1; i <= 16; i++) {
+					const opt = document.createElement('option');
+					opt.value = i - 1;
+					opt.text = `Channel ${i}`;
+					channelSelect.appendChild(opt);
 				}
 
-				// Update status circle class
-				const statusCircle = jammer.querySelector('.status-circle');
-				statusCircle.classList.toggle('active', client.active);
-				statusCircle.classList.toggle('inactive', !client.active);
+				// Populate MIDI input ports
+				ports.inputs.forEach((name, i) => {
+					const opt = document.createElement('option');
+					opt.value = i;
+					opt.text = name || `Port ${i}`;
+					midiIn.appendChild(opt.cloneNode(true));
+					midiIn2.appendChild(opt);
+				});
 
-				jammersDiv.appendChild(jammer);
-			});
+				// Populate MIDI output ports
+				ports.outputs.forEach((name, i) => {
+					const opt = document.createElement('option');
+					opt.value = i;
+					opt.text = name || `Port ${i}`;
+					midiOut.appendChild(opt);
+				});
+			} catch (e) {
+				showStatus("Failed to load MIDI ports: " + e.message, false);
+				console.error("Error in populateMidiPorts:", e);
+			}
 		}
 
 
 
+function animateFetchingClients() {
+    const statusMessage = document.getElementById('statusMessage');
+    if (!statusMessage) return;
+
+    clearInterval(fetchInterval);
+    dots = 0;
+    fetchInterval = setInterval(() => {
+        dots = (dots + 1) % 4; // Cycle between 0 to 3 dots
+        statusMessage.textContent = "Fetching Clients" + ".".repeat(dots);
+    }, 500);
+}
+
+function stopFetchingAnimation() {
+    clearInterval(fetchInterval);
+    const statusMessage = document.getElementById('statusMessage');
+    if (statusMessage) statusMessage.textContent = "";
+}
+
+// Modify updateJammers to trigger animation
+async function updateJammers() {
+    animateFetchingClients();
+    try {
+        const response = await fetch('/clients');
+        const data = await response.json();
+        const clients = data.clients || [];
+        const jammersDiv = document.getElementById('jammers');
+
+        if (clients.length === 0) {
+            jammersDiv.innerHTML = '<div class="no-clients">No clients connected</div>';
+        } else {
+            jammersDiv.innerHTML = '';
+            clients.forEach(client => {
+                const jammer = document.createElement('div');
+                jammer.classList.add('jammer');
+                jammer.innerHTML = `<span>${client.nickname} (ch${client.channel + 1})</span>
+                    <div class="status-circle ${client.active ? 'active' : 'inactive'}"></div>`;
+                jammersDiv.appendChild(jammer);
+            });
+        }
+
+        stopFetchingAnimation(); // Stop animation when data is fetched
+    } catch (e) {
+        console.error("Error fetching clients:", e);
+    }
+}
 		document.getElementById('configForm').addEventListener('submit', async (e) => {
 			e.preventDefault();
 
 			if (isConnected) {
-				const response = await fetch('/stop', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' }
-				});
-				const result = await response.text();
-				if (response.ok) {
-					isConnected = false;
-					jamButton.textContent = 'Start Jam';
-					showStatus('Jam stopped successfully!');
-					updateJammers(); // Reset to "No clients connected"
-				} else {
-					showStatus(result, false);
+				try {
+					const response = await fetch('/stop', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' }
+					});
+					const result = await response.text();
+					if (response.ok) {
+						isConnected = false;
+						jamButton.textContent = 'Start Jam';
+						showStatus('Jam stopped successfully!');
+						clearInterval(updateInterval);
+						updateInterval = null;
+						updateJammers();
+					} else {
+						showStatus(result, false);
+					}
+				} catch (e) {
+					showStatus("Failed to stop jam: " + e.message, false);
 				}
 				return;
 			}
 
-			const [server_ip, server_port] = document.getElementById('server').value.split(':');
-			const config = {
-				server_ip,
-				server_port: parseInt(server_port),
-				nickname: document.getElementById('nickname').value,
-				channel: parseInt(document.getElementById('channel').value),
-				midi_in: parseInt(document.getElementById('midiIn').value),
-				midi_out: parseInt(document.getElementById('midiOut').value),
-				midi_in_2: parseInt(document.getElementById('midiIn2').value)
-			};
+		const [server_ip, server_port] = document.getElementById('server').value.split(':');
+		
+		const config = {
+			server_ip,
+			server_port: parseInt(server_port),
+			nickname: document.getElementById('nickname').value,
+			channel: parseInt(document.getElementById('channel').value),
+			midi_in: parseInt(document.getElementById('midiIn').value),
+			midi_out: parseInt(document.getElementById('midiOut').value),
+			midi_in_2: parseInt(document.getElementById('midiIn2').value)
+		};
 
+		try {
 			const response = await fetch('/start', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -334,15 +368,19 @@
 				isConnected = true;
 				jamButton.textContent = 'Stop Jam';
 				showStatus('Jam started successfully!');
-				setInterval(updateJammers, 1000); // Update every second
-				updateJammers(); // Initial update
+				if (!updateInterval) {
+					updateInterval = setInterval(updateJammers, 1000);
+				}
+				updateJammers();
 			} else {
 				showStatus(result, false);
 			}
-		});
+		} catch (e) {
+			showStatus("Failed to start jam: " + e.message, false);
+		}
+	});
 
-		// Initialize on page load
-		Promise.all([populateMidiPorts(), checkClientStatus(), updateJammers()]);
+	// Initialize on page load
+	Promise.all([populateMidiPorts(), checkClientStatus(), loadConfig(), updateJammers()]);
 	</script>
-</body>
 </html>

@@ -31,8 +31,8 @@ struct Client {
 
 class MidiJamServer {
     static constexpr size_t BUFFER_SIZE = 64;
-    static constexpr auto HEARTBEAT_TIMEOUT = std::chrono::seconds(10);  // Timeout for connection
-    static constexpr auto MIDI_ACTIVITY_TIMEOUT = std::chrono::seconds(5);  // Timeout for MIDI activity
+    static constexpr auto HEARTBEAT_TIMEOUT = std::chrono::seconds(20);  // Timeout for connection
+    static constexpr auto MIDI_ACTIVITY_TIMEOUT = std::chrono::seconds(2);  // Timeout for MIDI activity
     static constexpr auto HEARTBEAT_INTERVAL = std::chrono::seconds(5);
 
     boost::asio::io_context io_context_;
@@ -106,7 +106,7 @@ private:
                     if (ec) std::cerr << "Ping send error: " << ec.message() << "\n";
                 });
         } else if (bytes == 4 && std::strncmp(buffer_.data(), "PONG", 4) == 0) {
-            std::cout << "Heartbeat received from " << client.nickname << " @ " << sender_key << "\n";
+            //std::cout << "Heartbeat received from " << client.nickname << " @ " << sender_key << "\n";
         } else if (bytes > 0 && (static_cast<uint8_t>(buffer_[0]) & 0xF0) >= 0x80) {
             client.channel = static_cast<uint8_t>(buffer_[0]) & 0x0F;
             client.last_midi_activity = std::chrono::steady_clock::now();  // Update MIDI activity
