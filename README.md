@@ -39,8 +39,8 @@ To connect clients and a server over the internet, the server needs to be access
 
 2.  **Clone Repository:**
     ```bash
-    git clone [repository_url]
-    cd [fast-midi-jam]
+    git clone https://github.com/serifpersia/fast-midi-jam
+    cd fast-midi-jam
     ```
 
 3.  **Run `build.bat`:** Downloads RtMidi, generates build files, and compiles.
