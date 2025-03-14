@@ -65,7 +65,6 @@ class MidiJamClient {
     bool connected_ = false;
     json::value last_client_list_;
     mutable std::mutex client_list_mutex_;
-
     int midi_in_port_;
     int midi_out_port_;
     int midi_in_port_2_;
@@ -75,7 +74,6 @@ class MidiJamClient {
         auto* client = static_cast<MidiJamClient*>(userData);
         uint8_t status = msg->at(0) & 0xF0;
         if (status != 0x80 && status != 0x90 && status != 0xB0) return;
-
         std::vector<unsigned char> adjusted = *msg;
         adjusted[0] = status | (client->midi_channel_ & 0x0F);
         client->udp_socket_.async_send_to(
@@ -170,14 +168,12 @@ private:
             midi_in_.openPort(in_port);
             midi_in_.ignoreTypes(true, true, true);
             midi_in_.setCallback(&midi_callback, this);
-
             if (in_port_2 >= 0 && in_port_2 != in_port) {
                 midi_in_2_.openPort(in_port_2);
                 midi_in_2_.ignoreTypes(true, true, true);
                 midi_in_2_.setCallback(&midi_callback, this);
                 has_second_input_ = true;
             }
-
             midi_out_.openPort(out_port);
             logger.log("MIDI ports opened: in=" + std::to_string(in_port) + ", out=" + std::to_string(out_port) +
                        ", in2=" + std::to_string(in_port_2));
@@ -238,6 +234,7 @@ class HttpServer {
     std::filesystem::path static_dir_;
     json::object cached_midi_ports_; // Added: Cache for MIDI ports
     std::chrono::steady_clock::time_point last_midi_update_; // Added: Last update timestamp
+    mutable std::mutex client_mutex_; // Protect access to `client_`
     static constexpr auto MIDI_UPDATE_INTERVAL = std::chrono::seconds(30); // Added: Update interval
 
 public:
@@ -255,7 +252,6 @@ private:
             if (!ec) {
                 handle_request(socket);
             }
-            // Modified: Add a small delay to reduce CPU usage when idle
             boost::asio::post(io_context_, [this]() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 start_accept();
@@ -266,7 +262,6 @@ private:
     void handle_request(std::shared_ptr<tcp::socket> socket) {
         auto buffer = std::make_shared<beast::flat_buffer>();
         auto request = std::make_shared<http::request<http::string_body>>();
-
         http::async_read(*socket, *buffer, *request,
             [this, socket, buffer, request](boost::system::error_code ec, std::size_t) {
                 if (!ec) {
@@ -287,7 +282,6 @@ private:
         return content;
     }
 
-    // Added: Function to update cached MIDI ports
     void update_midi_ports() {
         RtMidiIn midi_in;
         RtMidiOut midi_out;
@@ -321,12 +315,12 @@ private:
             } else if (request.method() == http::verb::get && request.target() == "/midi-ports") {
                 response.result(http::status::ok);
                 response.set(http::field::content_type, "application/json");
-                // Modified: Use cached MIDI ports, refresh only if stale
                 if (std::chrono::steady_clock::now() - last_midi_update_ > MIDI_UPDATE_INTERVAL) {
                     update_midi_ports();
                 }
                 response.body() = json::serialize(cached_midi_ports_);
             } else if (request.method() == http::verb::post && request.target() == "/stop") {
+                std::lock_guard<std::mutex> lock(client_mutex_);
                 if (client_) {
                     client_->disconnect();
                     client_.reset();
@@ -338,16 +332,17 @@ private:
                     response.body() = "No active client to disconnect!";
                 }
             } else if (request.method() == http::verb::post && request.target() == "/start") {
-                auto config = json::parse(request.body());
-                std::string server_ip = config.at("server_ip").as_string().c_str();
-                short server_port = static_cast<short>(config.at("server_port").as_int64());
-                std::string nickname = config.at("nickname").as_string().c_str();
-                int midi_in_port = static_cast<int>(config.at("midi_in").as_int64());
-                int midi_out_port = static_cast<int>(config.at("midi_out").as_int64());
-                int midi_in_port_2 = static_cast<int>(config.at("midi_in_2").as_int64());
-                uint8_t midi_channel = static_cast<uint8_t>(config.at("channel").as_int64());
-
                 try {
+                    auto config = json::parse(request.body());
+                    std::string server_ip = config.at("server_ip").as_string().c_str();
+                    short server_port = static_cast<short>(config.at("server_port").as_int64());
+                    std::string nickname = config.at("nickname").as_string().c_str();
+                    int midi_in_port = static_cast<int>(config.at("midi_in").as_int64());
+                    int midi_out_port = static_cast<int>(config.at("midi_out").as_int64());
+                    int midi_in_port_2 = static_cast<int>(config.at("midi_in_2").as_int64());
+                    uint8_t midi_channel = static_cast<uint8_t>(config.at("channel").as_int64());
+
+                    std::lock_guard<std::mutex> lock(client_mutex_);
                     client_ = std::make_shared<MidiJamClient>(server_ip, server_port, nickname,
                                                               midi_in_port, midi_out_port, midi_in_port_2, midi_channel);
                     response.result(http::status::ok);
@@ -355,34 +350,42 @@ private:
                     logger.log("Client started successfully");
                 } catch (const std::exception& e) {
                     response.result(http::status::bad_request);
-                    response.body() = "Failed to start client: " + std::string(e.what());
-                    logger.log("Failed to start client: " + std::string(e.what()));
+                    response.body() = "Invalid JSON: " + std::string(e.what());
+                    logger.log("JSON parse error: " + std::string(e.what()));
                 }
             } else if (request.method() == http::verb::get && request.target() == "/status") {
                 response.result(http::status::ok);
                 response.set(http::field::content_type, "application/json");
                 json::object status;
-                status["isConnected"] = client_ && client_->is_connected();
+                {
+                    std::lock_guard<std::mutex> lock(client_mutex_);
+                    status["isConnected"] = client_ && client_->is_connected();
+                }
                 response.body() = json::serialize(status);
             } else if (request.method() == http::verb::get && request.target() == "/config") {
                 response.result(http::status::ok);
                 response.set(http::field::content_type, "application/json");
-                if (client_ && client_->is_connected()) {
-                    response.body() = json::serialize(client_->get_config());
-                } else {
-                    json::object empty_config;
-                    response.body() = json::serialize(empty_config);
+                json::object config;
+                {
+                    std::lock_guard<std::mutex> lock(client_mutex_);
+                    if (client_ && client_->is_connected()) {
+                        config = client_->get_config();
+                    }
                 }
+                response.body() = json::serialize(config);
             } else if (request.method() == http::verb::get && request.target() == "/clients") {
                 response.result(http::status::ok);
                 response.set(http::field::content_type, "application/json");
-                if (client_) {
-                    response.body() = json::serialize(client_->get_client_list());
-                } else {
-                    json::object empty_list;
-                    empty_list["clients"] = json::array();
-                    response.body() = json::serialize(empty_list);
+                json::object client_list;
+                {
+                    std::lock_guard<std::mutex> lock(client_mutex_);
+                    if (client_) {
+                        client_list = client_->get_client_list().as_object();
+                    } else {
+                        client_list["clients"] = json::array();
+                    }
                 }
+                response.body() = json::serialize(client_list);
             } else {
                 response.result(http::status::not_found);
                 response.body() = "Not Found!";
@@ -390,7 +393,6 @@ private:
         } catch (const std::exception& e) {
             response.result(http::status::internal_server_error);
             response.body() = "Server error: " + std::string(e.what());
-            logger.log("HTTP request error: " + std::string(e.what()));
         }
 
         response.prepare_payload();
@@ -404,9 +406,12 @@ std::shared_ptr<MidiJamClient> global_client = nullptr;
 void signal_handler(int signal) {
     if (signal == SIGINT) {
         logger.log("[Client] SIGINT received! Shutting down...");
-        if (global_client) {
-            global_client->disconnect();
-            global_client.reset();
+        {
+            std::lock_guard<std::mutex> lock(*reinterpret_cast<std::mutex*>(&global_client)); // Ensure thread safety
+            if (global_client) {
+                global_client->disconnect();
+                global_client.reset();
+            }
         }
         if (global_io_context) {
             global_io_context->stop();
@@ -420,7 +425,6 @@ int main() {
         boost::asio::io_context io_context;
         global_io_context = &io_context;
 
-        // Modified: Add work guard to keep io_context alive and run in multiple threads
         auto work = boost::asio::make_work_guard(io_context);
         std::vector<std::thread> io_threads;
         int thread_count = std::max(1, static_cast<int>(std::thread::hardware_concurrency()) - 1); // Leave 1 core for OS
@@ -434,8 +438,8 @@ int main() {
         }
 
         HttpServer server(io_context, 8080, "static");
-        global_client = nullptr;
 
+        global_client = nullptr;
         std::string url = "http://localhost:8080";
 #ifdef _WIN32
         system(("start " + url).c_str());
@@ -447,7 +451,6 @@ int main() {
 
         std::signal(SIGINT, signal_handler);
 
-        // Modified: Join threads instead of calling io_context.run() in main thread
         for (auto& t : io_threads) {
             if (t.joinable()) t.join();
         }

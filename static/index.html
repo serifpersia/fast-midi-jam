@@ -278,28 +278,7 @@
 			}
 		}
 
-
-
-		function animateFetchingClients() {
-			const statusMessage = document.getElementById('statusMessage');
-			if (!statusMessage) return;
-
-			clearInterval(fetchInterval);
-			dots = 0;
-			fetchInterval = setInterval(() => {
-				dots = (dots + 1) % 4; // Cycle between 0 to 3 dots
-				statusMessage.textContent = "Fetching Clients" + ".".repeat(dots);
-			}, 500);
-		}
-
-		function stopFetchingAnimation() {
-			clearInterval(fetchInterval);
-			const statusMessage = document.getElementById('statusMessage');
-			if (statusMessage) statusMessage.textContent = "";
-		}
-
 		async function updateJammers() {
-			animateFetchingClients();
 			try {
 				const response = await fetch('/clients');
 				const data = await response.json();
@@ -324,11 +303,8 @@
 						jammersDiv.appendChild(jammer);
 					});
 				}
-
-				stopFetchingAnimation();
 			} catch (e) {
-				console.error("Error fetching clients:", e);
-				stopFetchingAnimation();
+			console.log(e);
 			}
 		}
 		
@@ -345,7 +321,7 @@
 					if (response.ok) {
 						isConnected = false;
 						jamButton.textContent = 'Start Jam';
-						showStatus('Jam stopped successfully!');
+						showStatus('Jam stopped!');
 						clearInterval(updateInterval);
 						updateInterval = null;
 						updateJammers();
@@ -381,7 +357,7 @@
 			if (response.ok) {
 				isConnected = true;
 				jamButton.textContent = 'Stop Jam';
-				showStatus('Jam started successfully!');
+				showStatus('Jam started!');
 				if (!updateInterval) {
 					updateInterval = setInterval(updateJammers, 5000);
 				}

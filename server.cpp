@@ -161,7 +161,6 @@ private:
 
 		client_list["clients"] = clients_array;
 		std::string json_str = json::serialize(client_list);
-
 		socket_.async_send_to(
 			boost::asio::buffer(json_str), sender,
 			[](const boost::system::error_code& ec, std::size_t) {
