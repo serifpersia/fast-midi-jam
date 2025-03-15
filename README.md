@@ -47,10 +47,10 @@ To connect clients and a server over the internet, the server needs to be access
 
 ## Running
 
-1.  **Start Server:** `build\MidiJamServer.exe`
+1.  **Start Server:** `build\MidiJamServer.exe` 
 
 2.  **Start Clients:** `build\MidiJamClient.exe`
-
+* Both Server and Client exes can be ran in cmd or terminal with -debug arg for verbose log
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
