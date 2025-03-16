@@ -36,7 +36,7 @@ if not exist rtmidi (
     echo Downloading RtMidi...
     powershell -Command "Invoke-WebRequest -Uri 'https://github.com/thestk/rtmidi/archive/refs/heads/master.zip' -OutFile 'rtmidi.zip'"
     powershell -Command "Expand-Archive -Path 'rtmidi.zip' -DestinationPath '.' -Force"
-    mkdir rtmidi
+    if not exist rtmidi mkdir rtmidi
     copy /Y "rtmidi-master\*.h" "rtmidi\"
     copy /Y "rtmidi-master\*.cpp" "rtmidi\"
     del rtmidi.zip
@@ -51,16 +51,24 @@ if not exist build mkdir build
 cd build
 
 if "%COMPILER_TYPE%"=="mingw" (
-    cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-static" ..
+    echo Using MinGW...
+    cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ..
     if !ERRORLEVEL! neq 0 exit /b 1
-    mingw32-make
+    :: Use all available CPU cores for parallel building
+    for /f "tokens=*" %%i in ('powershell -Command "(Get-CimInstance -ClassName Win32_ComputerSystem).NumberOfLogicalProcessors"') do set JOBS=%%i
+    echo Building with !JOBS! jobs...
+    mingw32-make -j!JOBS!
     if !ERRORLEVEL! neq 0 exit /b 1
 ) else (
+    echo Using Visual Studio...
     cmake -G "Visual Studio 17 2022" -A x64 ..
     if !ERRORLEVEL! neq 0 exit /b 1
-    cmake --build . --config Release
+    :: MSBuild already uses multiple cores by default, but we can make it explicit
+    cmake --build . --config Release -- /maxcpucount
     if !ERRORLEVEL! neq 0 exit /b 1
 )
 
 echo Build complete! Executables: build\MidiJamServer.exe and build\MidiJamClient.exe
 cd ..
+
+endlocal

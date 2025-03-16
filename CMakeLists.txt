@@ -11,21 +11,37 @@ endif()
 
 # Platform-Specific Library Linking
 if(WIN32)
-    set(WIN_LIBS ws2_32 mswsock winmm)  # Winsock & MIDI support
-else()
-    set(WIN_LIBS "")
+    set(PLATFORM_LIBS ws2_32 mswsock winmm)  # Winsock & MIDI support
+elseif(APPLE)
+    set(PLATFORM_LIBS "-framework CoreMIDI" "-framework CoreAudio" "-framework CoreFoundation")
+elseif(UNIX)
+    find_package(ALSA QUIET)
+    if(ALSA_FOUND)
+        set(PLATFORM_LIBS asound pthread)
+        add_definitions(-D__LINUX_ALSA__)
+    else()
+        find_package(Jack REQUIRED) # Require JACK
+        set(PLATFORM_LIBS ${JACK_LIBRARIES} pthread)
+        add_definitions(-D__UNIX_JACK__)
+    endif()
 endif()
 
-# Static linking for MinGW
+# Static linking for MinGW (Windows only)
 if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static -static-libgcc -static-libstdc++")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
-    set(WIN_LIBS ${WIN_LIBS} -lstdc++ -lgcc)
+    list(APPEND PLATFORM_LIBS "-lstdc++" "-lgcc")
 endif()
 
-# Force static Boost libraries
-set(Boost_USE_STATIC_LIBS ON)
-find_package(Boost 1.74 REQUIRED COMPONENTS asio beast json)
+# Force static Boost libraries on Windows, dynamic elsewhere
+if(WIN32)
+    set(Boost_USE_STATIC_LIBS ON)
+else()
+    set(Boost_USE_STATIC_LIBS OFF) # Ensure dynamic linking on Linux/macOS
+endif()
+
+# Find Boost with system and json components
+find_package(Boost 1.74 REQUIRED COMPONENTS system json)
 include_directories(${Boost_INCLUDE_DIRS})
 
 # RtMidi setup
@@ -40,34 +56,24 @@ add_library(rtmidi STATIC
     ${RTMIDI_DIR}/rtmidi_c.cpp
 )
 
-# MIDI and Networking Libraries
+# Platform Specific Definitions
 if(WIN32)
     add_definitions(-D__WINDOWS_MM__)
 elseif(APPLE)
     add_definitions(-D__MACOSX_CORE__)
-    set(WIN_LIBS "-framework CoreMIDI" "-framework CoreAudio" "-framework CoreFoundation")
-elseif(UNIX)
-    find_package(ALSA QUIET)
-    if(ALSA_FOUND)
-        add_definitions(-D__LINUX_ALSA__)
-        set(WIN_LIBS asound pthread)
-    else()
-        add_definitions(-D__UNIX_JACK__)
-        set(WIN_LIBS jack pthread)
-    endif()
 endif()
 
 # MIDI Utility Library
 add_library(midi_utils STATIC ${CMAKE_SOURCE_DIR}/midi_utils.cpp)
-target_link_libraries(midi_utils PRIVATE rtmidi ${WIN_LIBS})
+target_link_libraries(midi_utils PRIVATE rtmidi ${PLATFORM_LIBS})
 
 # Server executable
 add_executable(MidiJamServer ${CMAKE_SOURCE_DIR}/server.cpp)
-target_link_libraries(MidiJamServer PRIVATE Boost::asio Boost::json ${WIN_LIBS})
+target_link_libraries(MidiJamServer PRIVATE Boost::system Boost::json ${PLATFORM_LIBS})
 
-# Client executable (Uses HTTP Server Lib)
+# Client executable
 add_executable(MidiJamClient ${CMAKE_SOURCE_DIR}/client.cpp)
-target_link_libraries(MidiJamClient PRIVATE Boost::asio Boost::beast Boost::json midi_utils rtmidi ${WIN_LIBS})
+target_link_libraries(MidiJamClient PRIVATE Boost::system Boost::json midi_utils rtmidi ${PLATFORM_LIBS})
 
 # Output directory
 set_target_properties(MidiJamServer MidiJamClient PROPERTIES
@@ -89,3 +95,7 @@ foreach(ASSET ${STATIC_ASSETS})
         COMMENT "Copying ${ASSET_NAME} to static directory"
     )
 endforeach()
+
+# Install Targets (optional)
+install(TARGETS MidiJamServer MidiJamClient DESTINATION bin)
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/static" DESTINATION bin/static)

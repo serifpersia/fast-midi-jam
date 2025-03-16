@@ -743,11 +743,14 @@ int main(int argc, char* argv[]) {
         global_client = nullptr;
         std::string url = "http://localhost:8080";
 #ifdef _WIN32
-        system(("start " + url).c_str());
+        int result = system(("start " + url).c_str());
+        (void)result; // Suppress warning
 #elif __APPLE__
-        system(("open " + url).c_str());
+        int result = system(("open " + url).c_str());
+        (void)result; // Suppress warning
 #else
-        system(("xdg-open " + url).c_str());
+        int result = system(("xdg-open " + url).c_str());
+        (void)result; // Suppress warning
 #endif
 
         std::signal(SIGINT, signal_handler);
