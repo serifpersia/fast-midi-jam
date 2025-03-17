@@ -9,7 +9,7 @@
         :root {
             --primary-color: #00d4ff;
             --secondary-color: #bc5eff;
-            --github-color: #6e5494; /* A purple color for GitHub */
+            --github-color: #6e5494;
         }
         body {
             font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
@@ -18,7 +18,7 @@
             margin: 0;
             padding: 20px;
             display: flex;
-            flex-direction: column; /* Changed to column */
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
@@ -31,8 +31,8 @@
             width: 100%;
             max-width: 600px;
             border: 1px solid rgba(78, 93, 148, 0.2);
-            position: relative; /* Make container the positioning context */
-            margin-bottom: 20px; /* Add some space between the container and the footer */
+            position: relative;
+            margin-bottom: 20px;
         }
         h1 {
             text-align: center;
@@ -71,7 +71,6 @@
             background: #2a2f4f;
             color: #e6e6e6;
             font-size: 16px;
-            box-sizing: border-box;
             transition: border-color 0.3s, box-shadow 0.3s;
         }
         input:focus, select:focus {
@@ -114,6 +113,30 @@
         button:hover::after {
             transform: scale(1);
         }
+        button.loading {
+            pointer-events: none;
+            opacity: 0.8;
+        }
+        button.loading span {
+            display: none;
+        }
+        button.loading .spinner {
+            display: inline-block;
+        }
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
         .status-message {
             position: fixed;
             top: 1rem;
@@ -123,7 +146,7 @@
             border-radius: 1rem;
             opacity: 0;
             transition: opacity 0.3s ease;
-            z-index: 10; /* Ensure it’s above loading indicator */
+            z-index: 10;
         }
         .status-message.show {
             opacity: 1;
@@ -174,42 +197,6 @@
             font-style: italic;
             font-size: 16px;
             padding: 10px;
-        }
-        .loading-indicator {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            display: none; /* Default to hidden, controlled by JS */
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: rgba(0, 0, 0, 0.7); /* Semi-transparent overlay */
-            padding: 20px;
-            border-radius: 10px;
-            z-index: 5; /* Above form/jammers but below status-message */
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        }
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            border-top: 4px solid var(--primary-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 10px;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .loading-indicator span {
-            font-size: 16px;
-            color: #e6e6e6;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-        }
-
-        /* Footer Styles */
         footer {
             background: rgba(34, 40, 66, 0.95);
             color: #e6e6e6;
@@ -222,26 +209,21 @@
             border: 1px solid rgba(78, 93, 148, 0.2);
             font-size: 0.8rem;
         }
-
         footer a {
             color: var(--primary-color);
             text-decoration: none;
             transition: color 0.3s ease;
         }
-
         footer a:hover {
             text-decoration: underline;
             color: var(--secondary-color);
         }
-
-        /* GitHub Icon Style */
         .github-link {
             display: inline-flex;
             align-items: center;
             gap: 5px;
-            color: var(--github-color); /* Github color */
+            color: var(--github-color);
         }
-
         .github-link:hover {
             color: var(--primary-color);
         }
@@ -265,27 +247,22 @@
             <select id="midiIn2">
                 <option value="-1">None</option>
             </select>
-            <button type="submit" id="jamButton">Start Jam</button>
+            <button type="submit" id="jamButton">
+                <span id="jamButtonText">Start Jam</span>
+                <div class="spinner"></div>
+            </button>
             <div id="statusMessage" class="status-message"></div>
         </form>
         <div class="jammers" id="jammers">
             <div class="no-clients">No clients connected</div>
         </div>
-        <div id="loadingIndicator" class="loading-indicator">
-            <div class="spinner"></div>
-            <span id="loadingMessage">Connecting...</span>
-        </div>
     </div>
-
     <footer>
-        © 2025 serifpersia.  <a href="https://github.com/serifpersia" class="github-link"><i class="fab fa-github"></i> GitHub</a>
+        © 2025 serifpersia. <a href="https://github.com/serifpersia" class="github-link"><i class="fab fa-github"></i> GitHub</a>
     </footer>
-
     <script>
         let isConnected = false;
         let updateInterval = null;
-        const jamButton = document.getElementById('jamButton');
-        let loadingTimeout = null;
 
         function showStatus(message, isSuccess = true) {
             const statusMessage = document.getElementById('statusMessage');
@@ -293,38 +270,6 @@
             statusMessage.className = `status-message ${isSuccess ? 'success' : 'error'}`;
             statusMessage.classList.add('show');
             setTimeout(() => statusMessage.classList.remove('show'), 3000);
-        }
-
-        function showLoading(message = "Connecting...") {
-            const loadingMessage = document.getElementById('loadingMessage');
-            const loadingIndicator = document.getElementById('loadingIndicator');
-            console.log("Loading Message Element:", loadingMessage);
-            if (!loadingMessage || !loadingIndicator) {
-                console.error("Error: loading elements not found!");
-                return;
-            }
-            loadingMessage.textContent = message;
-            loadingIndicator.style.display = 'flex';
-            // Set a timeout to hide the loading indicator after 2 seconds max
-            if (loadingTimeout) clearTimeout(loadingTimeout);
-            loadingTimeout = setTimeout(hideLoading, 4000);
-        }
-
-        function hideLoading() {
-            const loadingIndicator = document.getElementById('loadingIndicator');
-            const noClients = document.querySelector('.no-clients');
-            if (!loadingIndicator) {
-                console.error("Error: loadingIndicator not found!");
-                return;
-            }
-            if (!document.querySelectorAll('.jammer').length && noClients) {
-                noClients.style.display = 'block';
-            }
-            loadingIndicator.style.display = 'none';
-            if (loadingTimeout) {
-                clearTimeout(loadingTimeout);
-                loadingTimeout = null;
-            }
         }
 
         async function populateMidiPorts() {
@@ -336,56 +281,36 @@
                 const midiOut = document.getElementById('midiOut');
                 const midiIn2 = document.getElementById('midiIn2');
                 const channelSelect = document.getElementById('channel');
-
-                // Populate MIDI channels
                 for (let i = 1; i <= 16; i++) {
                     const opt = document.createElement('option');
                     opt.value = i - 1;
                     opt.text = `Channel ${i}`;
                     channelSelect.appendChild(opt);
                 }
-                channelSelect.value = 0; // Default to Channel 1 (0-based)
-
-                // Populate MIDI inputs
+                channelSelect.value = 0;
                 ports.inputs.forEach((name, i) => {
                     const opt = document.createElement('option');
                     opt.value = i;
                     opt.text = name || `Port ${i}`;
                     midiIn.appendChild(opt);
                 });
-                midiIn.value = 0; // Default to first input
-
-                // Populate MIDI outputs
+                midiIn.value = 0;
                 ports.outputs.forEach((name, i) => {
                     const opt = document.createElement('option');
                     opt.value = i;
                     opt.text = name || `Port ${i}`;
                     midiOut.appendChild(opt);
                 });
-                midiOut.value = 0; // Default to first output
-
-                // Populate second MIDI input (optional)
+                midiOut.value = 0;
                 ports.inputs.forEach((name, i) => {
                     const opt = document.createElement('option');
                     opt.value = i;
                     opt.text = name || `Port ${i}`;
                     midiIn2.appendChild(opt);
                 });
-                midiIn2.value = -1; // Default to "None"
+                midiIn2.value = -1;
             } catch (e) {
                 showStatus("Failed to load MIDI ports: " + e.message, false);
-                console.error("Error in populateMidiPorts:", e);
-                const fallbackPorts = ['Port 0', 'Port 1'];
-                ['midiIn', 'midiOut'].forEach((id) => {
-                    const select = document.getElementById(id);
-                    fallbackPorts.forEach((name, i) => {
-                        const opt = document.createElement('option');
-                        opt.value = i;
-                        opt.text = name;
-                        select.appendChild(opt);
-                    });
-                    select.value = 0; // Default to first option
-                });
             }
         }
 
@@ -394,7 +319,7 @@
                 const response = await fetch('/status');
                 const status = await response.json();
                 isConnected = status.isConnected;
-                jamButton.textContent = isConnected ? 'Stop Jam' : 'Start Jam';
+                updateJamButtonState();
             } catch (e) {
                 showStatus("Failed to check status: " + e.message, false);
             }
@@ -404,7 +329,6 @@
             try {
                 const response = await fetch('/config');
                 const config = await response.json();
-                // Only update fields if config has meaningful data
                 if (config.server_ip && config.server_port !== 0) {
                     document.getElementById('server').value = `${config.server_ip}:${config.server_port}`;
                     document.getElementById('nickname').value = config.nickname || '';
@@ -413,7 +337,6 @@
                     document.getElementById('midiOut').value = config.midi_out;
                     document.getElementById('midiIn2').value = config.midi_in_2;
                 } else {
-                    // Ensure defaults are set if config is empty/invalid
                     document.getElementById('server').value = '127.0.0.1:5000';
                     document.getElementById('nickname').value = '';
                     document.getElementById('channel').value = 0;
@@ -423,13 +346,6 @@
                 }
             } catch (e) {
                 showStatus("Failed to load config: " + e.message, false);
-                // Set defaults on error
-                document.getElementById('server').value = '127.0.0.1:5000';
-                document.getElementById('nickname').value = '';
-                document.getElementById('channel').value = 0;
-                document.getElementById('midiIn').value = 0;
-                document.getElementById('midiOut').value = 0;
-                document.getElementById('midiIn2').value = -1;
             }
         }
 
@@ -459,30 +375,48 @@
                     });
                 }
             } catch (e) {
-                console.error("Error updating jammers:", e);
                 showStatus("Failed to update jammer list: " + e.message, false);
             }
         }
 
+        function toggleButtonLoading(state) {
+            const jamButton = document.getElementById('jamButton');
+            const jamButtonText = document.getElementById('jamButtonText');
+            const spinner = jamButton.querySelector('.spinner');
+            jamButton.classList.toggle('loading', state);
+            if (state) {
+                jamButtonText.style.display = 'none';
+                spinner.style.display = 'inline-block';
+            } else {
+                jamButtonText.style.display = 'inline';
+                spinner.style.display = 'none';
+            }
+        }
+
+        function updateJamButtonState() {
+            const jamButton = document.getElementById('jamButton');
+            const jamButtonText = document.getElementById('jamButtonText');
+            jamButtonText.textContent = isConnected ? 'Stop Jam' : 'Start Jam';
+            toggleButtonLoading(false);
+        }
+
         document.getElementById('configForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            showLoading(isConnected ? "Disconnecting..." : "Connecting...");
+            e.preventDefault();	
+            toggleButtonLoading(true);
             try {
                 if (isConnected) {
                     const response = await fetch('/stop', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' }
                     });
-                    const result = await response.text();
                     if (response.ok) {
                         isConnected = false;
-                        jamButton.textContent = 'Start Jam';
                         showStatus('Jam stopped!');
                         clearInterval(updateInterval);
                         updateInterval = null;
                         updateJammers();
                     } else {
-                        showStatus(result, false);
+                        showStatus((await response.text()), false);
                     }
                 } else {
                     const [server_ip, server_port] = document.getElementById('server').value.split(':');
@@ -500,23 +434,21 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(config)
                     });
-                    const result = await response.text();
                     if (response.ok) {
                         isConnected = true;
-                        jamButton.textContent = 'Stop Jam';
                         showStatus('Jam started!');
                         if (!updateInterval) {
                             updateInterval = setInterval(updateJammers, 5000);
                         }
                         updateJammers();
                     } else {
-                        showStatus(result, false);
+                        showStatus((await response.text()), false);
                     }
                 }
             } catch (e) {
                 showStatus(`Failed to ${isConnected ? 'stop' : 'start'} jam: ${e.message}`, false);
             } finally {
-                hideLoading(); // Ensure it hides even if there’s an error
+                updateJamButtonState();
             }
         });
 
