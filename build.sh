@@ -2,10 +2,6 @@
 
 set -e  # Exit immediately if a command exits with a non-zero status.
 
-echo "Updating package list and installing required dependencies..."
-sudo apt-get update
-sudo apt-get install -y cmake g++ unzip libasound2-dev libjack-dev libboost-dev wget
-
 # Download RtMidi if the directory doesn't exist
 if [ ! -d "rtmidi" ]; then
   echo "Downloading RtMidi..."

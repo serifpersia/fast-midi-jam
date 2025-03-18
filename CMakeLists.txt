@@ -41,7 +41,7 @@ else()
 endif()
 
 # Find Boost with system and json components
-find_package(Boost 1.74 REQUIRED COMPONENTS system json)
+find_package(Boost 1.83 REQUIRED COMPONENTS system json)
 include_directories(${Boost_INCLUDE_DIRS})
 
 # RtMidi setup
