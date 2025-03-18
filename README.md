@@ -71,7 +71,7 @@ sudo chmod +x MidiJamClient
 ./build/MidiJamClient
 ```
 
-*Linux users need to install libboost-dev package to be able to run the release binaries!
+*Linux users need to install libboost-dev libasound2-dev libjack-dev packages to be able to run the release binaries!
 Debug Mode: Add the ```-debug``` flag for verbose logging:
 
 ## License
