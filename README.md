@@ -47,25 +47,27 @@ To connect clients and a server over the internet, the server must be externally
 ### Linux
 1. **Requirements:**
 ```bash
-sudo apt update sudo apt install -y cmake g++ unzip libasound2-dev libjack-dev libboost-dev
+cmake g++ unzip libasound2-dev libjack-dev libboost-dev (1.83 minimum version)
 ```
 2. **Clone Repository and Build:**
 ```bash
 git clone https://github.com/serifpersia/fast-midi-jam
 cd fast-midi-jam
-chmod +x build.sh
-./build.sh
+sudo chmod +x build.sh
+sudo ./build.sh
 ```
 ### Running
 
 1. **Start Server:**
 ```bash
 build/MidiJamServer.exe
+sudo chmod +x MidiJamServer
 ./build/MidiJamServer
 ```
 2. **Start Client:**
 ```bash
 build/MidiJamClient.exe
+sudo chmod +x MidiJamClient
 ./build/MidiJamClient
 ```
 
