@@ -9,6 +9,11 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Force static linking of Boost libraries everywhere
+set(Boost_USE_STATIC_LIBS ON)
+set(Boost_USE_MULTITHREADED ON)
+set(Boost_USE_STATIC_RUNTIME OFF) # Use dynamic runtime to avoid glibc issues
+
 # Platform-Specific Library Linking
 if(WIN32)
     set(PLATFORM_LIBS ws2_32 mswsock winmm)  # Winsock & MIDI support
@@ -26,18 +31,9 @@ elseif(UNIX)
     endif()
 endif()
 
-# Static linking for MinGW (Windows only)
-if(MINGW)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static -static-libgcc -static-libstdc++")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
-    list(APPEND PLATFORM_LIBS "-lstdc++" "-lgcc")
-endif()
-
-# Force static Boost libraries on Windows, dynamic elsewhere
-if(WIN32)
-    set(Boost_USE_STATIC_LIBS ON)
-else()
-    set(Boost_USE_STATIC_LIBS OFF) # Ensure dynamic linking on Linux/macOS
+# Static linking enhancements for Linux
+if(UNIX AND NOT APPLE)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 endif()
 
 # Find Boost with system and json components
@@ -47,7 +43,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 # RtMidi setup
 set(RTMIDI_DIR ${CMAKE_SOURCE_DIR}/rtmidi)
 if(NOT EXISTS ${RTMIDI_DIR}/RtMidi.h)
-    message(FATAL_ERROR "RtMidi.h not found in ${RTMIDI_DIR}! Run build.bat first.")
+    message(FATAL_ERROR "RtMidi.h not found in ${RTMIDI_DIR}! Run build.sh first.")
 endif()
 include_directories(${RTMIDI_DIR})
 

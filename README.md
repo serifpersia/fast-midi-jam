@@ -47,7 +47,7 @@ To connect clients and a server over the internet, the server must be externally
 ### Linux
 1. **Requirements:**
 ```bash
-cmake g++ unzip libasound2-dev libjack-dev libboost-dev (1.83 minimum version)
+cmake g++ unzip libasound2-dev libjack-dev libboost-dev  or libboost-all-dev (1.83 minimum version)
 ```
 2. **Clone Repository and Build:**
 ```bash
@@ -71,7 +71,7 @@ sudo chmod +x MidiJamClient
 ./build/MidiJamClient
 ```
 
-*Linux users need to install libboost-system-dev libboost-json-dev libasound2-dev libjack-dev packages to be able to run the release binaries!
+*Linux users need to install libasound2-dev libjack-dev packages to be able to run the release binaries!
 Debug Mode: Add the ```-debug``` flag for verbose logging:
 
 ## License
