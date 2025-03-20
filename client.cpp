@@ -150,44 +150,83 @@ public:
         work_guard_.reset(); // Release work guard on destruction
     }
 
-    bool connect_with_handshake(int max_retries = 5, std::chrono::seconds timeout = std::chrono::seconds(2)) {
-        int retry_count = 0;
-        bool acknowledged = false;
+	bool connect_with_handshake(int max_retries = 5, std::chrono::seconds timeout = std::chrono::seconds(1)) {
+		int retry_count = 0;
+		bool acknowledged = false;
 
-        udp_socket_.set_option(boost::asio::socket_base::send_buffer_size(65536));
-        udp_socket_.set_option(boost::asio::socket_base::receive_buffer_size(65536));
+		udp_socket_.set_option(boost::asio::socket_base::send_buffer_size(65536));
+		udp_socket_.set_option(boost::asio::socket_base::receive_buffer_size(65536));
 
-        while (retry_count < max_retries && !acknowledged) {
-            try {
-                if (logger.is_debug_mode()) {
-                    logger.log("Sending nickname: " + nickname_);
-                }
+		while (retry_count < max_retries && !acknowledged) {
+			try {
+				if (logger.is_debug_mode()) {
+					logger.log("Sending nickname: " + nickname_);
+				}
+				udp_socket_.send_to(boost::asio::buffer(nickname_), server_endpoint_);
 
-                udp_socket_.send_to(boost::asio::buffer(nickname_), server_endpoint_);
-                boost::system::error_code ec;
-                size_t bytes = udp_socket_.receive_from(boost::asio::buffer(json_buffer_), server_endpoint_, 0, ec);
-                if (!ec && bytes == 3 && std::memcmp(json_buffer_.data(), "ACK", 3) == 0) {
-                    if (logger.is_debug_mode()) {
-                        logger.log("Received ACK from server");
-                    }
+				// Set up a timer for the timeout
+				boost::asio::steady_timer timer(io_context_);
+				timer.expires_after(timeout);
 
-                    acknowledged = true;
-                } else {
-                    logger.log("Handshake failed: " + (ec ? ec.message() : "Invalid response"));
-                    retry_count++;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                }
-            } catch (const std::exception& e) {
-                logger.log("Handshake exception: " + std::string(e.what()));
-                retry_count++;
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            }
-        }
-        if (!acknowledged) {
-            logger.log("Failed to connect after " + std::to_string(max_retries) + " retries");
-        }
-        return acknowledged;
-    }
+				// Asynchronously wait for the timer
+				boost::system::error_code timer_ec;
+				timer.async_wait([&timer_ec](const boost::system::error_code& ec) {
+					if (!ec) {
+						timer_ec = boost::asio::error::timed_out; // Mark as timed out
+					}
+				});
+
+				// Asynchronously wait for the server's response
+				boost::system::error_code receive_ec;
+				size_t bytes = 0;
+				udp::endpoint sender_endpoint;
+				auto receive_handler = [&](const boost::system::error_code& ec, std::size_t length) {
+					if (!ec) {
+						bytes = length;
+						receive_ec = ec;
+					} else {
+						receive_ec = ec;
+					}
+					timer.cancel(); // Cancel the timer since we received a response
+				};
+
+				udp_socket_.async_receive_from(
+					boost::asio::buffer(json_buffer_), sender_endpoint, receive_handler);
+
+				// Run the io_context to process the asynchronous operations
+				io_context_.run_for(timeout);
+
+				// Check the results
+				if (timer_ec == boost::asio::error::timed_out) {
+					logger.log("Handshake failed: Server did not respond within the timeout period.");
+				} else if (receive_ec) {
+					logger.log("Handshake failed: " + receive_ec.message());
+				} else if (bytes == 3 && std::memcmp(json_buffer_.data(), "ACK", 3) == 0) {
+					if (logger.is_debug_mode()) {
+						logger.log("Received ACK from server");
+					}
+					acknowledged = true;
+				} else {
+					logger.log("Handshake failed: Invalid response");
+				}
+
+				if (!acknowledged) {
+					retry_count++;
+					std::this_thread::sleep_for(std::chrono::milliseconds(500));
+				}
+			} catch (const std::exception& e) {
+				logger.log("Handshake exception: " + std::string(e.what()));
+				retry_count++;
+				std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			}
+		}
+
+		if (!acknowledged) {
+			logger.log("Failed to connect after " + std::to_string(max_retries) + " retries");
+		}
+
+		return acknowledged;
+	}
 
     void connect() {
         if (connected_) return;
