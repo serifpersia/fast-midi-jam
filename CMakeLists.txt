@@ -16,7 +16,7 @@ set(Boost_USE_STATIC_RUNTIME OFF) # Use dynamic runtime to avoid glibc issues
 
 # Platform-Specific Library Linking
 if(WIN32)
-    set(PLATFORM_LIBS ws2_32 mswsock winmm)  # Winsock & MIDI support
+    set(PLATFORM_LIBS ws2_32 mswsock winmm -static -lpthread)
 elseif(APPLE)
     set(PLATFORM_LIBS "-framework CoreMIDI" "-framework CoreAudio" "-framework CoreFoundation")
 elseif(UNIX)
