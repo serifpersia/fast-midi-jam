@@ -9,23 +9,29 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# Force static linking of Boost libraries everywhere
+# Force static linking of Boost libraries
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_MULTITHREADED ON)
 set(Boost_USE_STATIC_RUNTIME OFF) # Use dynamic runtime to avoid glibc issues
+
+# Detect if we are building for ARM64
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    message(STATUS "Building for ARM64 (aarch64)")
+    set(PLATFORM_LIBS pthread)
+endif()
 
 # Platform-Specific Library Linking
 if(WIN32)
     set(PLATFORM_LIBS ws2_32 mswsock winmm -static -lpthread)
 elseif(APPLE)
     set(PLATFORM_LIBS "-framework CoreMIDI" "-framework CoreAudio" "-framework CoreFoundation")
-elseif(UNIX)
+elseif(UNIX AND NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     find_package(ALSA QUIET)
     if(ALSA_FOUND)
         set(PLATFORM_LIBS asound pthread)
         add_definitions(-D__LINUX_ALSA__)
     else()
-        find_package(Jack REQUIRED) # Require JACK
+        find_package(Jack REQUIRED)
         set(PLATFORM_LIBS ${JACK_LIBRARIES} pthread)
         add_definitions(-D__UNIX_JACK__)
     endif()
@@ -89,6 +95,6 @@ foreach(ASSET ${STATIC_ASSETS})
     )
 endforeach()
 
-# Install Targets (optional)
+# Install Targets
 install(TARGETS MidiJamServer MidiJamClient DESTINATION bin)
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/static" DESTINATION bin/static)

@@ -2,6 +2,12 @@
 
 set -e  # Exit immediately if a command exits with a non-zero status.
 
+ARCH_TARGET=""
+if [ "$1" == "arm64" ]; then
+  ARCH_TARGET="arm64"
+  echo "Building for ARM64 (aarch64) using cross-compilation..."
+fi
+
 # Download RtMidi if the directory doesn't exist
 if [ ! -d "rtmidi" ]; then
   echo "Downloading RtMidi..."
@@ -25,8 +31,13 @@ mkdir build
 cd build
 
 # Configure the build with CMake
-echo "Configuring build with CMake..."
-cmake ..
+if [ "$ARCH_TARGET" == "arm64" ]; then
+  echo "Configuring ARM64 build with CMake..."
+  cmake .. -DCMAKE_TOOLCHAIN_FILE=../aarch64-toolchain.cmake
+else
+  echo "Configuring native build with CMake..."
+  cmake ..
+fi
 
 # Build the project
 echo "Building the project..."
