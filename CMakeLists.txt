@@ -31,10 +31,7 @@ elseif(UNIX)
     endif()
 endif()
 
-# Static linking enhancements for Linux
-if(UNIX AND NOT APPLE)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
-endif()
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
 # Find Boost with system and json components
 find_package(Boost 1.83 REQUIRED COMPONENTS system json)
