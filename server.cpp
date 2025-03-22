@@ -1,5 +1,4 @@
 #include <boost/asio.hpp>
-#include <boost/json.hpp>
 #include <iostream>
 #include <vector>
 #include <unordered_map>
@@ -13,9 +12,10 @@
 #include <mutex>   // For std::mutex
 #include <algorithm>
 #include <csignal> // For signal handling
+#include "third_party/nlohmann/json.hpp"
 
 using boost::asio::ip::udp;
-namespace json = boost::json;
+using json = nlohmann::json;
 
 // Simple logging utility
 class Logger {
@@ -207,33 +207,28 @@ private:
 		}
 	}
 
-    void send_client_list(const udp::endpoint& sender) noexcept {
-        json::object client_list;
-        json::array clients_array;
-
-        for (const auto& [id, client] : clients_) {
-            json::object client_info;
-            client_info["nickname"] = client.nickname;
-            client_info["channel"] = client.channel;
-            bool is_active = (client.last_midi_activity != std::chrono::steady_clock::time_point() &&
-                              std::chrono::steady_clock::now() - client.last_midi_activity < MIDI_ACTIVITY_TIMEOUT);
-            client_info["active"] = is_active;
-            client_info["latency_ms"] = client.latency_ms; // New: Include latency
-            clients_array.push_back(client_info);
-        }
-
-        client_list["clients"] = clients_array;
-        std::string json_str = json::serialize(client_list);
-
-        // Log the outgoing client list
-        log_data("Sending", sender, json_str.data(), json_str.size());
-
-        socket_.async_send_to(
-            boost::asio::buffer(json_str), sender,
-            [](const boost::system::error_code& ec, std::size_t) {
-                if (ec) logger.log_verbose("Client list send error: " + ec.message());
-            });
-    }
+	void send_client_list(const udp::endpoint& sender) noexcept {
+		json client_list;
+		json clients_array = json::array();
+		for (const auto& [id, client] : clients_) {
+			json client_info;
+			client_info["nickname"] = client.nickname;
+			client_info["channel"] = client.channel;
+			bool is_active = (client.last_midi_activity != std::chrono::steady_clock::time_point() &&
+							  std::chrono::steady_clock::now() - client.last_midi_activity < MIDI_ACTIVITY_TIMEOUT);
+			client_info["active"] = is_active;
+			client_info["latency_ms"] = client.latency_ms; // New: Include latency
+			clients_array.push_back(client_info);
+		}
+		client_list["clients"] = clients_array;
+		std::string json_str = client_list.dump(); // Serialize to string
+		log_data("Sending", sender, json_str.data(), json_str.size());
+		socket_.async_send_to(
+			boost::asio::buffer(json_str), sender,
+			[](const boost::system::error_code& ec, std::size_t) {
+				if (ec) logger.log_verbose("Client list send error: " + ec.message());
+			});
+	}
 
     void forward_midi(const std::string& sender_key, std::size_t bytes) noexcept {
         auto buffer = std::make_shared<std::vector<char>>(buffer_.begin(), buffer_.begin() + bytes);

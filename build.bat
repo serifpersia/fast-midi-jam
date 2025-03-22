@@ -43,6 +43,22 @@ if not exist rtmidi (
     rd /s /q rtmidi-master
 )
 
+:: Download json.hpp if not exists
+set JSON_DIR=C:\Users\serif-pc-10\Documents\GitHub\fast-midi-jam\third_party\nlohmann
+set JSON_PATH=%JSON_DIR%\json.hpp
+if not exist "%JSON_PATH%" (
+    echo Downloading nlohmann/json.hpp...
+    if not exist "%JSON_DIR%" mkdir "%JSON_DIR%"
+    powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/nlohmann/json/v3.11.3/single_include/nlohmann/json.hpp' -OutFile '%JSON_PATH%'"
+    if !ERRORLEVEL! neq 0 (
+        echo Failed to download json.hpp! Exiting.
+        exit /b 1
+    )
+    echo json.hpp downloaded successfully.
+) else (
+    echo json.hpp already exists. Skipping download.
+)
+
 :: Remove existing build directory
 if exist build rd /s /q build
 

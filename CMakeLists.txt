@@ -1,10 +1,21 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.5)
 project(MidiJam VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+# Set C++ Standard
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Detect cross-compilation
+if(CMAKE_CROSSCOMPILING)
+    message(STATUS "Cross-compiling for ${CMAKE_SYSTEM_PROCESSOR}")
+    
+    # Explicitly set paths for Boost
+    set(Boost_LIBRARY_DIR /usr/lib/aarch64-linux-gnu)
+    set(Boost_INCLUDE_DIR /usr/include)  # Use /usr/include instead of /usr/aarch64-linux-gnu/include
+endif()
+
+# Define build type if not set
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -12,89 +23,81 @@ endif()
 # Force static linking of Boost libraries
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_MULTITHREADED ON)
-set(Boost_USE_STATIC_RUNTIME OFF) # Use dynamic runtime to avoid glibc issues
+set(Boost_USE_STATIC_RUNTIME OFF) # Dynamic runtime to avoid glibc issues
 
-# Detect if we are building for ARM64
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-    message(STATUS "Building for ARM64 (aarch64)")
-    set(PLATFORM_LIBS pthread)
-endif()
-
-# Platform-Specific Library Linking
+# Static linking on Windows
 if(WIN32)
-    set(PLATFORM_LIBS ws2_32 mswsock winmm -static -lpthread)
-elseif(APPLE)
-    set(PLATFORM_LIBS "-framework CoreMIDI" "-framework CoreAudio" "-framework CoreFoundation")
-elseif(UNIX AND NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-    find_package(ALSA QUIET)
-    if(ALSA_FOUND)
-        set(PLATFORM_LIBS asound pthread)
-        add_definitions(-D__LINUX_ALSA__)
-    else()
-        find_package(Jack REQUIRED)
-        set(PLATFORM_LIBS ${JACK_LIBRARIES} pthread)
-        add_definitions(-D__UNIX_JACK__)
-    endif()
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
 endif()
 
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
-
-# Find Boost with system and json components
-find_package(Boost 1.83 REQUIRED COMPONENTS system json)
-include_directories(${Boost_INCLUDE_DIRS})
+# Find Boost
+find_package(Boost 1.66 REQUIRED COMPONENTS system)
+if(Boost_FOUND)
+    include_directories(${Boost_INCLUDE_DIRS})
+else()
+    message(FATAL_ERROR "Boost 1.66 or newer not found! Please install Boost 1.66 or later.")
+endif()
 
 # RtMidi setup
 set(RTMIDI_DIR ${CMAKE_SOURCE_DIR}/rtmidi)
 if(NOT EXISTS ${RTMIDI_DIR}/RtMidi.h)
-    message(FATAL_ERROR "RtMidi.h not found in ${RTMIDI_DIR}! Run build.sh first.")
+    message(FATAL_ERROR "RtMidi.h not found in ${RTMIDI_DIR}! Run build script first.")
 endif()
 include_directories(${RTMIDI_DIR})
 
+# Add RtMidi library
 add_library(rtmidi STATIC
     ${RTMIDI_DIR}/RtMidi.cpp
     ${RTMIDI_DIR}/rtmidi_c.cpp
 )
 
-# Platform Specific Definitions
-if(WIN32)
-    add_definitions(-D__WINDOWS_MM__)
-elseif(APPLE)
-    add_definitions(-D__MACOSX_CORE__)
+# Configure RtMidi for Linux
+if(UNIX AND NOT APPLE)
+    target_compile_definitions(rtmidi PRIVATE __LINUX_ALSA__)
+    target_link_libraries(rtmidi PRIVATE pthread asound)
+elseif(WIN32)
+    target_compile_definitions(rtmidi PRIVATE __WINDOWS_MM__)
+    target_link_libraries(rtmidi PRIVATE ws2_32 mswsock winmm)
 endif()
 
-# MIDI Utility Library
+# Include nlohmann/json
+include_directories(${CMAKE_SOURCE_DIR}/third_party/nlohmann)
+
+# Midi utilities
 add_library(midi_utils STATIC ${CMAKE_SOURCE_DIR}/midi_utils.cpp)
-target_link_libraries(midi_utils PRIVATE rtmidi ${PLATFORM_LIBS})
+target_link_libraries(midi_utils PRIVATE rtmidi)
 
 # Server executable
 add_executable(MidiJamServer ${CMAKE_SOURCE_DIR}/server.cpp)
-target_link_libraries(MidiJamServer PRIVATE Boost::system Boost::json ${PLATFORM_LIBS})
+target_link_libraries(MidiJamServer PRIVATE Boost::system)
 
-# Client executable
+if(UNIX AND NOT APPLE)
+    target_link_libraries(MidiJamServer PRIVATE pthread)
+elseif(WIN32)
+    target_link_libraries(MidiJamServer PRIVATE ws2_32 mswsock)
+endif()
+
+# Client executable (depends on RtMidi)
 add_executable(MidiJamClient ${CMAKE_SOURCE_DIR}/client.cpp)
-target_link_libraries(MidiJamClient PRIVATE Boost::system Boost::json midi_utils rtmidi ${PLATFORM_LIBS})
+target_link_libraries(MidiJamClient PRIVATE Boost::system midi_utils rtmidi stdc++fs)
 
-# Output directory
+# Set output directory
 set_target_properties(MidiJamServer MidiJamClient PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}"
-    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}"
 )
 
-# Static Assets Handling
+# Handle static assets
 file(GLOB STATIC_ASSETS "${CMAKE_SOURCE_DIR}/static/*")
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/static")
-
 foreach(ASSET ${STATIC_ASSETS})
     get_filename_component(ASSET_NAME ${ASSET} NAME)
     add_custom_command(
         TARGET MidiJamClient POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${ASSET}" "${CMAKE_BINARY_DIR}/static/${ASSET_NAME}"
-        COMMENT "Copying ${ASSET_NAME} to static directory"
     )
 endforeach()
 
-# Install Targets
+# Install targets
 install(TARGETS MidiJamServer MidiJamClient DESTINATION bin)
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/static" DESTINATION bin/static)
